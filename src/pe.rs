@@ -145,7 +145,7 @@ where
         // TODO: untested
         let mut symbols: Vec<_> = self.symbols().filter(SymbolMap::filter).collect();
         symbols.sort_by_key(|x| x.address);
-        SymbolMap { symbols }
+        SymbolMap { symbols, object_files: Vec::new() }
     }
 
     #[inline]
@@ -275,6 +275,7 @@ impl<'data, 'file> Iterator for PeSymbolIterator<'data, 'file> {
                 name: Some(export.name),
                 address: export.rva as u64,
                 size: 0,
+                object_file_index: Default::default(),
             });
         }
         if let Some(import) = self.imports.next() {
@@ -289,6 +290,7 @@ impl<'data, 'file> Iterator for PeSymbolIterator<'data, 'file> {
                 name: name,
                 address: 0,
                 size: 0,
+                object_file_index: Default::default(),
             });
         }
         None

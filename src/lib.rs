@@ -12,6 +12,7 @@
 #![cfg_attr(not(feature = "std"), feature(alloc))]
 
 #[cfg(feature = "std")]
+#[macro_use]
 extern crate std;
 
 #[cfg(not(feature = "std"))]
@@ -194,12 +195,13 @@ where
 /// A symbol table entry.
 #[derive(Debug)]
 pub struct Symbol<'data> {
-    kind: SymbolKind,
-    section_kind: Option<SectionKind>,
-    global: bool,
     name: Option<&'data str>,
     address: u64,
     size: u64,
+    kind: SymbolKind,
+    section_kind: Option<SectionKind>,
+    global: bool,
+    object_file_index: SymbolObjectFileIndex,
 }
 
 /// The kind of a symbol.
@@ -221,10 +223,24 @@ pub enum SymbolKind {
     Tls,
 }
 
+/// A source object file for a symbol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolObjectFile<'data> {
+    /// The path to the object file. This may include an archive member name.
+    // TODO: add helpers to split archive member name
+    pub path: &'data str,
+    /// The timestamp of the source object file.
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SymbolObjectFileIndex(usize);
+
 /// A map from addresses to symbols.
 #[derive(Debug)]
 pub struct SymbolMap<'data> {
     symbols: Vec<Symbol<'data>>,
+    object_files: Vec<SymbolObjectFile<'data>>,
 }
 
 /// Evaluate an expression on the contents of a file format enum.
@@ -506,6 +522,30 @@ impl<'data> Symbol<'data> {
     pub fn size(&self) -> u64 {
         self.size
     }
+
+    /// The index of the object file that this symbol came from.
+    ///
+    /// This is only useful in conjunction with `SymbolMap::object_file`.
+    pub fn object_file_index(&self) -> Option<usize> {
+        self.object_file_index.get()
+    }
+
+}
+
+impl SymbolObjectFileIndex {
+    fn get(self) -> Option<usize> {
+        if self == Self::default() {
+            None
+        } else {
+            Some(self.0)
+        }
+    }
+}
+
+impl Default for SymbolObjectFileIndex {
+    fn default() -> Self {
+        SymbolObjectFileIndex(std::usize::MAX)
+    }
 }
 
 impl<'data> SymbolMap<'data> {
@@ -523,6 +563,16 @@ impl<'data> SymbolMap<'data> {
             })
             .ok()
             .and_then(|index| self.symbols.get(index))
+    }
+
+    /// Get the source object file for a symbol.
+    pub fn object_file(&self, index: usize) -> Option<&SymbolObjectFile<'data>> {
+        self.object_files.get(index)
+    }
+
+    /// The number of object files in the map.
+    pub fn object_file_count(&self) -> usize {
+        self.object_files.len()
     }
 
     /// Get all symbols in the map.

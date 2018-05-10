@@ -143,7 +143,7 @@ where
     fn symbol_map(&self) -> SymbolMap<'data> {
         let mut symbols: Vec<_> = self.symbols().filter(SymbolMap::filter).collect();
         symbols.sort_by_key(|x| x.address);
-        SymbolMap { symbols }
+        SymbolMap { symbols, object_files: Vec::new() }
     }
 
     #[inline]
@@ -297,6 +297,7 @@ impl<'data, 'file> Iterator for ElfSymbolIterator<'data, 'file> {
                 kind,
                 section_kind,
                 global: elf::sym::st_bind(symbol.st_info) != elf::sym::STB_LOCAL,
+                object_file_index: Default::default(),
             }
         })
     }
