@@ -77,9 +77,7 @@ pub struct File<'data> {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum FileInternal<'data> {
-    Elf(ElfFile<'data>),
-    MachO(MachOFile<'data>),
-    Pe(PeFile<'data>),
+    Elf(ElfFile<'data>), MachO(MachOFile<'data>), Pe(PeFile<'data>),
     #[cfg(feature = "wasm")]
     Wasm(WasmFile),
 }
