@@ -40,3 +40,7 @@ default = ["read", "std", "compression", "wasm"]
 [[example]]
 name = "objcopy"
 required-features = ["read", "write"]
+
+[[example]]
+name = "bss"
+required-features = ["read", "write"]
