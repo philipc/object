@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 
 use crate::read::{
     self, Architecture, ComdatKind, CompressedData, FileFlags, Relocation, Result, SectionFlags,
-    SectionIndex, SectionKind, SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapName,
-    SymbolScope, SymbolSection,
+    SectionIndex, SectionKind, SourceMap, SymbolFlags, SymbolIndex, SymbolKind, SymbolMap,
+    SymbolMapName, SymbolScope, SymbolSection,
 };
 use crate::Endianness;
 
@@ -100,19 +100,23 @@ pub trait Object<'data: 'file, 'file>: read::private::Sealed {
     /// Get the symbol table, if any.
     fn symbol_table(&'file self) -> Option<Self::SymbolTable>;
 
-    /// Get the debugging symbol at the given index.
+    /// Get the symbol at the given index.
     ///
     /// The meaning of the index depends on the object file.
     ///
     /// Returns an error if the index is invalid.
     fn symbol_by_index(&'file self, index: SymbolIndex) -> Result<Self::Symbol>;
 
-    /// Get an iterator over the debugging symbols in the file.
+    /// Get an iterator over the symbols in the file.
     ///
     /// This may skip over symbols that are malformed or unsupported.
+    ///
+    /// For Mach-O files, this does not include STAB symbols.
     fn symbols(&'file self) -> Self::SymbolIterator;
 
     /// Get the dynamic linking symbol table, if any.
+    ///
+    /// Only ELF has a separate dynamic linking symbol table.
     fn dynamic_symbol_table(&'file self) -> Option<Self::SymbolTable>;
 
     /// Get an iterator over the dynamic linking symbols in the file.
@@ -137,6 +141,17 @@ pub trait Object<'data: 'file, 'file>: read::private::Sealed {
             }
         }
         SymbolMap::new(symbols)
+    }
+
+    /// Construct a map from addresses to symbol names and source/object file names.
+    fn source_map(&'file self) -> SourceMap<'data> {
+        // FIXME
+        let symbols = SymbolMap::new(Vec::new());
+        SourceMap {
+            symbols,
+            sources: Vec::new(),
+            objects: Vec::new(),
+        }
     }
 
     /// Return true if the file contains debug information sections, false if not.

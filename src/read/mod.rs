@@ -218,6 +218,82 @@ impl<'data> SymbolMapEntry for SymbolMapName<'data> {
     }
 }
 
+/// A map from addresses to source files and object files.
+#[derive(Debug)]
+pub struct SourceMap<'data> {
+    symbols: SymbolMap<SourceMapEntry<'data>>,
+    sources: Vec<&'data str>,
+    objects: Vec<&'data str>,
+}
+
+impl<'data> SourceMap<'data> {
+    /// Get the entry containing the given address.
+    pub fn get(&self, address: u64) -> Option<&SourceMapEntry<'data>> {
+        self.symbols
+            .get(address)
+            .filter(|entry| entry.size == 0 || address.wrapping_sub(entry.address) < entry.size)
+    }
+
+    /// Get all symbols in the map.
+    #[inline]
+    pub fn symbols(&self) -> &[SourceMapEntry<'data>] {
+        self.symbols.symbols()
+    }
+}
+
+/// A `SourceMap` entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SourceMapEntry<'data> {
+    address: u64,
+    size: u64,
+    name: &'data str,
+    source: Option<usize>,
+    object: Option<usize>,
+}
+
+impl<'data> SourceMapEntry<'data> {
+    /// Get the symbol address.
+    #[inline]
+    pub fn address(&self) -> u64 {
+        self.address
+    }
+
+    /// Get the symbol size.
+    ///
+    /// This may be 0 if the size is unknown.
+    #[inline]
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Get the symbol name.
+    #[inline]
+    pub fn name(&self) -> &'data str {
+        self.name
+    }
+
+    /// Get the source file name.
+    #[inline]
+    pub fn source(&self, map: &SourceMap<'data>) -> Option<&'data str> {
+        self.source
+            .and_then(|source| map.sources.get(source).copied())
+    }
+
+    /// Get the object file name.
+    #[inline]
+    pub fn object(&self, map: &SourceMap<'data>) -> Option<&'data str> {
+        self.object
+            .and_then(|source| map.objects.get(source).copied())
+    }
+}
+
+impl<'data> SymbolMapEntry for SourceMapEntry<'data> {
+    #[inline]
+    fn address(&self) -> u64 {
+        self.address
+    }
+}
+
 /// The target referenced by a relocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RelocationTarget {

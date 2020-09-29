@@ -9,8 +9,9 @@ use crate::pe;
 use crate::pod::{Bytes, Pod};
 use crate::read::util::StringTable;
 use crate::read::{
-    self, ObjectSymbol, ObjectSymbolTable, ReadError, Result, SectionIndex, SymbolFlags,
-    SymbolIndex, SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope, SymbolSection,
+    self, ObjectSymbol, ObjectSymbolTable, ReadError, Result, SectionIndex, SourceMap,
+    SourceMapEntry, SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope,
+    SymbolSection,
 };
 
 /// A table of symbol entries in a COFF or PE file.
@@ -97,15 +98,91 @@ impl<'data> SymbolTable<'data> {
         let mut symbols = Vec::with_capacity(self.symbols.len());
         let mut i = 0;
         while let Ok(symbol) = self.symbol(i) {
+            if symbol.is_definition() {
+                if let Some(entry) = f(symbol) {
+                    symbols.push(entry);
+                }
+            }
             i += 1 + symbol.number_of_aux_symbols as usize;
-            if !symbol.is_definition() {
-                continue;
-            }
-            if let Some(entry) = f(symbol) {
-                symbols.push(entry);
-            }
         }
         SymbolMap::new(symbols)
+    }
+
+    /// Construct a map from addresses to symbol names and source file names.
+    pub fn source_map(&self, image_base: u64, sections: &SectionTable) -> SourceMap<'data> {
+        let mut symbols = Vec::new();
+        let mut sources = Vec::new();
+        let mut source = None;
+        let mut i = 0;
+        while let Ok(symbol) = self.symbol(i) {
+            match symbol.storage_class {
+                pe::IMAGE_SYM_CLASS_FILE => {
+                    source = None;
+                    if symbol.number_of_aux_symbols > 0 {
+                        if let Ok(s) = self.get::<pe::ImageSymbolBytes>(i + 1) {
+                            // The name is padded with nulls.
+                            let name = match s.0.iter().position(|&x| x == 0) {
+                                Some(end) => &s.0[..end],
+                                None => &s.0[..],
+                            };
+                            if let Ok(name) = str::from_utf8(name) {
+                                source = Some(sources.len());
+                                sources.push(name);
+                            }
+                        }
+                    }
+                }
+                pe::IMAGE_SYM_CLASS_STATIC => {
+                    // Ignore section symbols.
+                    if symbol.value.get(LE) != 0 || symbol.number_of_aux_symbols == 0 {
+                        if let Ok(address) = symbol.address(image_base, sections) {
+                            if let Ok(name) = symbol.name_as_str(self.strings) {
+                                symbols.push(SourceMapEntry {
+                                    address,
+                                    size: 0,
+                                    name,
+                                    source,
+                                    object: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                pe::IMAGE_SYM_CLASS_EXTERNAL => {
+                    // Ignore undefined symbols.
+                    if symbol.section_number.get(LE) != pe::IMAGE_SYM_UNDEFINED {
+                        if let Ok(address) = symbol.address(image_base, sections) {
+                            if let Ok(name) = symbol.name_as_str(self.strings) {
+                                // Function symbols may have a size.
+                                let mut size = 0;
+                                if symbol.derived_type() == pe::IMAGE_SYM_DTYPE_FUNCTION
+                                    && symbol.number_of_aux_symbols > 0
+                                {
+                                    if let Ok(aux) = self.get::<pe::ImageAuxSymbolFunction>(i + 1) {
+                                        size = u64::from(aux.total_size.get(LE));
+                                    }
+                                }
+                                symbols.push(SourceMapEntry {
+                                    address,
+                                    size,
+                                    name,
+                                    source,
+                                    object: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            i += 1 + symbol.number_of_aux_symbols as usize;
+        }
+        SourceMap {
+            symbols: SymbolMap::new(symbols),
+            sources,
+            objects: Vec::new(),
+        }
     }
 }
 
@@ -127,6 +204,16 @@ impl pe::ImageSymbol {
                 None => &self.name[..],
             })
         }
+    }
+
+    /// Parse a COFF symbol name, and validate it as UTF-8.
+    ///
+    /// `strings` must be the string table used for symbols names.
+    pub fn name_as_str<'data>(&'data self, strings: StringTable<'data>) -> Result<&'data str> {
+        let name = self.name(strings)?;
+        str::from_utf8(name)
+            .ok()
+            .read_error("Non UTF-8 COFF symbol name")
     }
 
     /// Return the symbol address.

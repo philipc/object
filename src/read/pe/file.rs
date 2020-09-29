@@ -4,7 +4,7 @@ use core::{mem, str};
 use crate::read::coff::{CoffCommon, CoffSymbol, CoffSymbolIterator, CoffSymbolTable, SymbolTable};
 use crate::read::{
     self, Architecture, ComdatKind, Error, FileFlags, Object, ObjectComdat, ReadError, Result,
-    SectionIndex, SymbolIndex,
+    SectionIndex, SourceMap, SymbolIndex,
 };
 use crate::{pe, Bytes, LittleEndian as LE, Pod};
 
@@ -172,6 +172,12 @@ where
 
     fn dynamic_symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file>> {
         None
+    }
+
+    fn source_map(&'file self) -> SourceMap<'data> {
+        self.common
+            .symbols
+            .source_map(self.common.image_base, &self.common.sections)
     }
 
     fn has_debug_symbols(&self) -> bool {

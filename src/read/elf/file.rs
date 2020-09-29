@@ -2,8 +2,8 @@ use core::fmt::Debug;
 use core::{mem, str};
 
 use crate::read::{
-    self, util, Architecture, Error, FileFlags, Object, ReadError, SectionIndex, StringTable,
-    SymbolIndex,
+    self, util, Architecture, Error, FileFlags, Object, ReadError, SectionIndex, SourceMap,
+    StringTable, SymbolIndex,
 };
 use crate::{elf, endian, Bytes, Endian, Endianness, Pod, U32};
 
@@ -218,6 +218,11 @@ where
             endian: self.endian,
             symbols: &self.dynamic_symbols,
         })
+    }
+
+    #[inline]
+    fn source_map(&'file self) -> SourceMap<'data> {
+        self.symbols.source_map(self.endian)
     }
 
     fn has_debug_symbols(&self) -> bool {

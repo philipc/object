@@ -9,8 +9,8 @@ use crate::endian::{self, Endianness};
 use crate::pod::{Bytes, Pod};
 use crate::read::util::StringTable;
 use crate::read::{
-    self, ObjectSymbol, ObjectSymbolTable, ReadError, SectionIndex, SymbolFlags, SymbolIndex,
-    SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope, SymbolSection,
+    self, ObjectSymbol, ObjectSymbolTable, ReadError, SectionIndex, SourceMap, SourceMapEntry,
+    SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope, SymbolSection,
 };
 
 use super::{FileHeader, SectionHeader, SectionTable};
@@ -137,7 +137,7 @@ impl<'data, Elf: FileHeader> SymbolTable<'data, Elf> {
         endian: Elf::Endian,
         f: F,
     ) -> SymbolMap<Entry> {
-        let mut symbols = Vec::with_capacity(self.symbols.len());
+        let mut symbols = Vec::new();
         for symbol in self.symbols {
             if !symbol.is_definition(endian) {
                 continue;
@@ -147,6 +147,46 @@ impl<'data, Elf: FileHeader> SymbolTable<'data, Elf> {
             }
         }
         SymbolMap::new(symbols)
+    }
+
+    /// Construct a map from addresses to symbol names and source file names.
+    pub fn source_map(&self, endian: Elf::Endian) -> SourceMap<'data> {
+        let mut symbols = Vec::new();
+        let mut sources = Vec::new();
+        let mut source = None;
+        for symbol in self.symbols {
+            match symbol.st_type() {
+                elf::STT_FILE => {
+                    source = None;
+                    if let Ok(name) = symbol.name_as_str(endian, self.strings) {
+                        if !name.is_empty() {
+                            source = Some(sources.len());
+                            sources.push(name);
+                        }
+                    }
+                }
+                elf::STT_NOTYPE | elf::STT_FUNC | elf::STT_OBJECT => {
+                    let size = symbol.st_size(endian).into();
+                    if size != 0 && symbol.st_shndx(endian) != elf::SHN_UNDEF {
+                        if let Ok(name) = symbol.name_as_str(endian, self.strings) {
+                            symbols.push(SourceMapEntry {
+                                address: symbol.st_value(endian).into(),
+                                size,
+                                name,
+                                source,
+                                object: None,
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        SourceMap {
+            symbols: SymbolMap::new(symbols),
+            sources,
+            objects: Vec::new(),
+        }
     }
 }
 
@@ -261,11 +301,9 @@ impl<'data, 'file, Elf: FileHeader> ObjectSymbol<'data> for ElfSymbol<'data, 'fi
         self.index
     }
 
+    #[inline]
     fn name(&self) -> read::Result<&'data str> {
-        let name = self.symbol.name(self.endian, self.symbols.strings())?;
-        str::from_utf8(name)
-            .ok()
-            .read_error("Non UTF-8 ELF symbol name")
+        self.symbol.name_as_str(self.endian, self.symbols.strings())
     }
 
     #[inline]
@@ -394,6 +432,18 @@ pub trait Sym: Debug + Pod {
         strings
             .get(self.st_name(endian))
             .read_error("Invalid ELF symbol name offset")
+    }
+
+    /// Parse the symbol name from the string table, and validate it as UTF-8.
+    fn name_as_str<'data>(
+        &self,
+        endian: Self::Endian,
+        strings: StringTable<'data>,
+    ) -> read::Result<&'data str> {
+        let name = self.name(endian, strings)?;
+        str::from_utf8(name)
+            .ok()
+            .read_error("Non UTF-8 ELF symbol name")
     }
 
     /// Return true if the symbol is a definition of a function or data object.

@@ -2,7 +2,7 @@ use core::str;
 
 use crate::read::{
     self, Architecture, FileFlags, Object, ObjectSection, ReadError, Result, SectionIndex,
-    SymbolIndex,
+    SourceMap, SymbolIndex,
 };
 use crate::{pe, Bytes, LittleEndian as LE};
 
@@ -151,6 +151,12 @@ where
     #[inline]
     fn dynamic_symbol_table(&'file self) -> Option<CoffSymbolTable<'data, 'file>> {
         None
+    }
+
+    fn source_map(&'file self) -> SourceMap<'data> {
+        self.common
+            .symbols
+            .source_map(self.common.image_base, &self.common.sections)
     }
 
     fn has_debug_symbols(&self) -> bool {

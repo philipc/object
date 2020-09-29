@@ -7,8 +7,9 @@ use crate::macho;
 use crate::pod::Pod;
 use crate::read::util::StringTable;
 use crate::read::{
-    self, ObjectSymbol, ObjectSymbolTable, ReadError, Result, SectionIndex, SectionKind,
-    SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope, SymbolSection,
+    self, ObjectSymbol, ObjectSymbolTable, ReadError, Result, SectionIndex, SectionKind, SourceMap,
+    SourceMapEntry, SymbolFlags, SymbolIndex, SymbolKind, SymbolMap, SymbolMapEntry, SymbolScope,
+    SymbolSection,
 };
 
 use super::{MachHeader, MachOFile};
@@ -73,7 +74,7 @@ impl<'data, Mach: MachHeader> SymbolTable<'data, Mach> {
         &self,
         f: F,
     ) -> SymbolMap<Entry> {
-        let mut symbols = Vec::with_capacity(self.symbols.len());
+        let mut symbols = Vec::new();
         for nlist in self.symbols {
             if !nlist.is_definition() {
                 continue;
@@ -83,6 +84,65 @@ impl<'data, Mach: MachHeader> SymbolTable<'data, Mach> {
             }
         }
         SymbolMap::new(symbols)
+    }
+
+    /// Construct a map from addresses to symbol names and source/object file names.
+    pub fn source_map(&self, endian: Mach::Endian) -> SourceMap<'data> {
+        let mut symbols = Vec::new();
+        let mut sources = Vec::new();
+        let mut objects = Vec::new();
+        let mut source = None;
+        let mut object = None;
+        let mut current_function = None;
+        for nlist in self.symbols {
+            let n_type = nlist.n_type();
+            if n_type & macho::N_STAB == 0 {
+                continue;
+            }
+            // TODO: includes variables too (N_GSYM, N_STSYM). These may need to get their
+            // address from regular symbols though.
+            match n_type {
+                macho::N_SO | macho::N_SOL => {
+                    source = None;
+                    if let Ok(name) = nlist.name_as_str(endian, self.strings) {
+                        if !name.is_empty() {
+                            source = Some(sources.len());
+                            sources.push(name);
+                        }
+                    }
+                }
+                macho::N_OSO => {
+                    object = None;
+                    if let Ok(name) = nlist.name_as_str(endian, self.strings) {
+                        if !name.is_empty() {
+                            object = Some(objects.len());
+                            objects.push(name);
+                        }
+                    }
+                }
+                macho::N_FUN => {
+                    if let Ok(name) = nlist.name_as_str(endian, self.strings) {
+                        if !name.is_empty() {
+                            current_function = Some((name, nlist.n_value(endian).into()))
+                        } else if let Some((name, address)) = current_function.take() {
+                            symbols.push(SourceMapEntry {
+                                address,
+                                size: nlist.n_value(endian).into(),
+                                name,
+                                source,
+                                object,
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        SourceMap {
+            symbols: SymbolMap::new(symbols),
+            sources,
+            objects,
+        }
     }
 }
 
@@ -193,13 +253,10 @@ impl<'data, 'file, Mach: MachHeader> ObjectSymbol<'data> for MachOSymbol<'data, 
         self.index
     }
 
+    #[inline]
     fn name(&self) -> Result<&'data str> {
-        let name = self
-            .nlist
-            .name(self.file.endian, self.file.symbols.strings)?;
-        str::from_utf8(name)
-            .ok()
-            .read_error("Non UTF-8 Mach-O symbol name")
+        self.nlist
+            .name_as_str(self.file.endian, self.file.symbols.strings)
     }
 
     #[inline]
@@ -318,6 +375,17 @@ pub trait Nlist: Debug + Pod {
         strings
             .get(self.n_strx(endian))
             .read_error("Invalid Mach-O symbol name offset")
+    }
+
+    fn name_as_str<'data>(
+        &self,
+        endian: Self::Endian,
+        strings: StringTable<'data>,
+    ) -> Result<&'data str> {
+        let name = self.name(endian, strings)?;
+        str::from_utf8(name)
+            .ok()
+            .read_error("Non UTF-8 Mach-O symbol name")
     }
 
     /// Return true if the symbol is a definition of a function or data object.

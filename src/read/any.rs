@@ -13,8 +13,8 @@ use crate::read::wasm;
 use crate::read::{
     self, Architecture, BinaryFormat, ComdatKind, CompressedData, Error, FileFlags, Object,
     ObjectComdat, ObjectSection, ObjectSegment, ObjectSymbol, ObjectSymbolTable, Relocation,
-    Result, SectionFlags, SectionIndex, SectionKind, SymbolFlags, SymbolIndex, SymbolKind,
-    SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
+    Result, SectionFlags, SectionIndex, SectionKind, SourceMap, SymbolFlags, SymbolIndex,
+    SymbolKind, SymbolMap, SymbolMapName, SymbolScope, SymbolSection,
 };
 
 /// Evaluate an expression on the contents of a file format enum.
@@ -329,6 +329,10 @@ where
 
     fn symbol_map(&self) -> SymbolMap<SymbolMapName<'data>> {
         with_inner!(self.inner, FileInternal, |x| x.symbol_map())
+    }
+
+    fn source_map(&self) -> SourceMap<'data> {
+        with_inner!(self.inner, FileInternal, |x| x.source_map())
     }
 
     fn has_debug_symbols(&self) -> bool {

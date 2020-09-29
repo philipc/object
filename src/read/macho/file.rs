@@ -4,7 +4,7 @@ use core::{mem, str};
 
 use crate::read::{
     self, Architecture, ComdatKind, Error, FileFlags, Object, ObjectComdat, ObjectSection,
-    ReadError, Result, SectionIndex, SymbolIndex,
+    ReadError, Result, SectionIndex, SourceMap, SymbolIndex,
 };
 use crate::{endian, macho, BigEndian, Bytes, Endian, Endianness, Pod};
 
@@ -197,6 +197,11 @@ where
     #[inline]
     fn dynamic_symbol_table(&'file self) -> Option<MachOSymbolTable<'data, 'file, Mach>> {
         None
+    }
+
+    #[inline]
+    fn source_map(&'file self) -> SourceMap<'data> {
+        self.symbols.source_map(self.endian)
     }
 
     fn has_debug_symbols(&self) -> bool {
