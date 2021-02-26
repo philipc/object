@@ -87,7 +87,7 @@ pub fn bytes_of_slice<T: Pod>(val: &[T]) -> &[u8] {
 /// - convenience methods for `Pod` types
 /// - a useful `Debug` implementation
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub struct Bytes<'data>(pub &'data [u8]);
+pub(crate) struct Bytes<'data>(pub &'data [u8]);
 
 impl<'data> fmt::Debug for Bytes<'data> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
