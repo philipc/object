@@ -1,4 +1,6 @@
+#[cfg(feature = "archive")]
 use object::read::archive::ArchiveFile;
+#[cfg(feature = "macho")]
 use object::read::macho::{FatArch, FatHeader};
 use object::{Object, ObjectComdat, ObjectSection, ObjectSymbol};
 use std::{env, fs, process};
@@ -31,6 +33,7 @@ fn main() {
             }
         };
 
+        #[cfg(feature = "archive")]
         if let Ok(archive) = ArchiveFile::parse(&*file) {
             println!("Format: Archive (kind: {:?})", archive.kind());
             for member in archive.members() {
@@ -40,7 +43,11 @@ fn main() {
                     dump_object(member.data());
                 }
             }
-        } else if let Ok(arches) = FatHeader::parse_arch32(&*file) {
+            return;
+        }
+
+        #[cfg(feature = "macho")]
+        if let Ok(arches) = FatHeader::parse_arch32(&*file) {
             println!("Format: Mach-O Fat 32");
             for arch in arches {
                 println!();
@@ -49,7 +56,11 @@ fn main() {
                     dump_object(data);
                 }
             }
-        } else if let Ok(arches) = FatHeader::parse_arch64(&*file) {
+            return;
+        }
+
+        #[cfg(feature = "macho")]
+        if let Ok(arches) = FatHeader::parse_arch64(&*file) {
             println!("Format: Mach-O Fat 64");
             for arch in arches {
                 println!();
@@ -58,9 +69,10 @@ fn main() {
                     dump_object(data);
                 }
             }
-        } else {
-            dump_object(&*file);
+            return;
         }
+
+        dump_object(&*file);
     }
 }
 
