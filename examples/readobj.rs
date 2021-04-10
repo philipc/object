@@ -157,8 +157,11 @@ impl<W: Write> Printer<W> {
                         return;
                     }
                 }
-                p.print_indent();
-                writeln!(p.w, "<unknown> (0x{:X})", value & mask).unwrap();
+                // Assume that 0 has no special meaning.
+                if value & mask != 0 {
+                    p.print_indent();
+                    writeln!(p.w, "<unknown> (0x{:X})", value & mask).unwrap();
+                }
             } else {
                 for flag in flags {
                     if value & flag.value.into() == flag.value.into() {
@@ -4227,6 +4230,9 @@ mod pe {
                         {
                             match index {
                                 IMAGE_DIRECTORY_ENTRY_EXPORT => print_export_dir(p, dir, dir_data),
+                                IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR => {
+                                    print_com_descriptor(p, data, sections.as_ref(), dir, dir_data)
+                                }
                                 // TODO
                                 _ => {}
                             }
@@ -4332,6 +4338,130 @@ mod pe {
                 // TODO: display tables
             });
         }
+    }
+
+    fn print_com_descriptor(
+        p: &mut Printer<impl Write>,
+        data: &[u8],
+        sections: Option<&SectionTable>,
+        _dir: &ImageDataDirectory,
+        dir_data: &[u8],
+    ) {
+        if let Ok((cor_header, _)) = object::from_bytes::<pe::ImageCor20Header>(dir_data) {
+            p.group("ImageCor20Header", |p| {
+                p.field_hex("Size", cor_header.cb.get(LE));
+                p.field_hex(
+                    "MajorRuntimeVerson",
+                    cor_header.major_runtime_version.get(LE),
+                );
+                p.field_hex(
+                    "MinorRuntimeVerson",
+                    cor_header.minor_runtime_version.get(LE),
+                );
+                p.field_hex("Flags", cor_header.flags.get(LE));
+                p.flags(cor_header.flags.get(LE), 0, FLAGS_COMIMAGE);
+                p.field_hex(
+                    "EntryPointTokenOrRva",
+                    cor_header.entry_point_token_or_rva.get(LE),
+                );
+                p.group("MetaData", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.meta_data.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.meta_data.size.get(LE));
+                    if let Some(meta_data) =
+                        sections.and_then(|sections| cor_header.meta_data.data(data, sections).ok())
+                    {
+                        print_meta_data(p, meta_data);
+                    }
+                });
+                p.group("Resources", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.resources.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.resources.size.get(LE));
+                });
+                p.group("StrongNameSignature", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.strong_name_signature.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.strong_name_signature.size.get(LE));
+                });
+                p.group("CodeManagerTable", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.code_manager_table.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.code_manager_table.size.get(LE));
+                });
+                p.group("VtableFixups", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.vtable_fixups.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.vtable_fixups.size.get(LE));
+                });
+                p.group("ExportAddressTableJumps", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header
+                            .export_address_table_jumps
+                            .virtual_address
+                            .get(LE),
+                    );
+                    p.field_hex("Size", cor_header.export_address_table_jumps.size.get(LE));
+                });
+                p.group("ManagedNativeHeader", |p| {
+                    p.field_hex(
+                        "VirtualAddress",
+                        cor_header.managed_native_header.virtual_address.get(LE),
+                    );
+                    p.field_hex("Size", cor_header.managed_native_header.size.get(LE));
+                });
+            });
+        }
+    }
+
+    fn print_meta_data(p: &mut Printer<impl Write>, meta_data: &[u8]) -> Option<()> {
+        let (storage_signature, rest) =
+            object::from_bytes::<pe::StorageSignature>(meta_data).ok()?;
+        p.group("StorageSignature", |p| {
+            p.field_hex("Signature", storage_signature.signature.get(LE));
+            p.field_hex("MajorVersion", storage_signature.major_version.get(LE));
+            p.field_hex("MinorVersion", storage_signature.minor_version.get(LE));
+            p.field_hex("ExtraData", storage_signature.extra_data.get(LE));
+            p.field_hex("VersionString", storage_signature.version_string.get(LE));
+            if let Some(version) = rest.get(..storage_signature.version_string.get(LE) as usize) {
+                let version = match version.iter().position(|x| *x == 0) {
+                    Some(i) => &version[..i],
+                    None => version,
+                };
+                p.field_inline_string("Version", version);
+            }
+        });
+        let rest = rest.get(storage_signature.version_string.get(LE) as usize..)?;
+        let (storage_header, mut rest) = object::from_bytes::<pe::StorageHeader>(rest).ok()?;
+        p.group("StorageHeader)", |p| {
+            p.field_hex("Flags", storage_header.flags);
+            p.field_hex("Pad", storage_header.pad);
+            p.field("Streams", storage_header.streams.get(LE));
+        });
+        for _ in 0..storage_header.streams.get(LE) {
+            let (storage_stream, rest2) = object::from_bytes::<pe::StorageStream>(rest).ok()?;
+            let name_len = rest2.iter().position(|x| *x == 0)?;
+            let name = &rest2[..name_len];
+            p.group("StorageStream", |p| {
+                p.field_hex("Offset", storage_stream.offset.get(LE));
+                p.field_hex("Size", storage_stream.size.get(LE));
+                p.field_inline_string("Name", name);
+            });
+            let align_len = (name_len + 4) & !3;
+            rest = rest2.get(align_len..)?;
+        }
+        Some(())
     }
 
     fn print_sections(
@@ -4974,5 +5104,14 @@ mod pe {
         IMAGE_DIRECTORY_ENTRY_IAT,
         IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT,
         IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR,
+    );
+    static FLAGS_COMIMAGE: &[Flag<u32>] = &flags!(
+        COMIMAGE_FLAGS_ILONLY,
+        COMIMAGE_FLAGS_32BITREQUIRED,
+        COMIMAGE_FLAGS_IL_LIBRARY,
+        COMIMAGE_FLAGS_STRONGNAMESIGNED,
+        COMIMAGE_FLAGS_NATIVE_ENTRYPOINT,
+        COMIMAGE_FLAGS_TRACKDEBUGDATA,
+        COMIMAGE_FLAGS_32BITPREFERRED,
     );
 }

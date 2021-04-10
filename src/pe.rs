@@ -2862,6 +2862,41 @@ pub struct ImageCor20Header {
     pub managed_native_header: ImageDataDirectory,
 }
 
+// mdfileformat.h
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct StorageSignature {
+    /// "Magic" signature.
+    pub signature: U32<LE>,
+    /// Major file version.
+    pub major_version: U16<LE>,
+    /// Minor file version.
+    pub minor_version: U16<LE>,
+    /// Offset to next structure of information
+    pub extra_data: U32<LE>,
+    /// Length of version string
+    pub version_string: U32<LE>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct StorageHeader {
+    // STGHDR_xxx flags.
+    pub flags: u8,
+    pub pad: u8,
+    // How many streams are there.
+    pub streams: U16<LE>,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct StorageStream {
+    pub offset: U32<LE>,
+    pub size: U32<LE>,
+    //name: [u8],
+}
+
 unsafe_impl_pod!(
     ImageDosHeader,
     ImageOs2Header,
@@ -2945,4 +2980,7 @@ unsafe_impl_pod!(
     ImageArchitectureEntry,
     ImportObjectHeader,
     ImageCor20Header,
+    StorageSignature,
+    StorageHeader,
+    StorageStream,
 );
