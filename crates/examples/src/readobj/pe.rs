@@ -137,6 +137,7 @@ fn print_pe<Pe: ImageNtHeaders>(p: &mut Printer<'_>, data: &[u8]) {
                 print_delay_load_dir::<Pe>(p, data, sections, &data_directories);
                 print_reloc_dir(p, data, machine, sections, &data_directories);
                 print_resource_dir(p, data, sections, &data_directories);
+                print_com_descriptor(p, data, &sections, &data_directories);
             }
         }
     }
@@ -746,6 +747,130 @@ fn print_reloc_dir(
     Some(())
 }
 
+fn print_com_descriptor(
+    p: &mut Printer<'_>,
+    data: &[u8],
+    sections: &SectionTable,
+    data_directories: &DataDirectories,
+) -> Option<()> {
+    let dir = data_directories.get(IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR)?;
+    let dir_data = dir.data(data, sections).print_err(p)?;
+    let (cor_header, _) = object::from_bytes::<pe::ImageCor20Header>(dir_data).ok()?;
+    p.group("ImageCor20Header", |p| {
+        p.field_hex("Size", cor_header.cb.get(LE));
+        p.field_hex(
+            "MajorRuntimeVersion",
+            cor_header.major_runtime_version.get(LE),
+        );
+        p.field_hex(
+            "MinorRuntimeVersion",
+            cor_header.minor_runtime_version.get(LE),
+        );
+        p.field_hex("Flags", cor_header.flags.get(LE));
+        p.flags(cor_header.flags.get(LE), 0, FLAGS_COMIMAGE);
+        p.field_hex(
+            "EntryPointTokenOrRva",
+            cor_header.entry_point_token_or_rva.get(LE),
+        );
+        p.group("MetaData", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.meta_data.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.meta_data.size.get(LE));
+            if let Some(meta_data) = cor_header.meta_data.data(data, sections).print_err(p)
+            {
+                print_meta_data(p, meta_data);
+            }
+        });
+        p.group("Resources", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.resources.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.resources.size.get(LE));
+        });
+        p.group("StrongNameSignature", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.strong_name_signature.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.strong_name_signature.size.get(LE));
+        });
+        p.group("CodeManagerTable", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.code_manager_table.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.code_manager_table.size.get(LE));
+        });
+        p.group("VtableFixups", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.vtable_fixups.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.vtable_fixups.size.get(LE));
+        });
+        p.group("ExportAddressTableJumps", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header
+                    .export_address_table_jumps
+                    .virtual_address
+                    .get(LE),
+            );
+            p.field_hex("Size", cor_header.export_address_table_jumps.size.get(LE));
+        });
+        p.group("ManagedNativeHeader", |p| {
+            p.field_hex(
+                "VirtualAddress",
+                cor_header.managed_native_header.virtual_address.get(LE),
+            );
+            p.field_hex("Size", cor_header.managed_native_header.size.get(LE));
+        });
+    });
+    Some(())
+}
+
+fn print_meta_data(p: &mut Printer<'_>, meta_data: &[u8]) -> Option<()> {
+    let (storage_signature, rest) =
+        object::from_bytes::<pe::StorageSignature>(meta_data).ok()?;
+    p.group("StorageSignature", |p| {
+        p.field_hex("Signature", storage_signature.signature.get(LE));
+        p.field_hex("MajorVersion", storage_signature.major_version.get(LE));
+        p.field_hex("MinorVersion", storage_signature.minor_version.get(LE));
+        p.field_hex("ExtraData", storage_signature.extra_data.get(LE));
+        p.field_hex("VersionString", storage_signature.version_string.get(LE));
+        if let Some(version) = rest.get(..storage_signature.version_string.get(LE) as usize) {
+            let version = match version.iter().position(|x| *x == 0) {
+                Some(i) => &version[..i],
+                None => version,
+            };
+            p.field_inline_string("Version", version);
+        }
+    });
+    let rest = rest.get(storage_signature.version_string.get(LE) as usize..)?;
+    let (storage_header, mut rest) = object::from_bytes::<pe::StorageHeader>(rest).ok()?;
+    p.group("StorageHeader", |p| {
+        p.field_hex("Flags", storage_header.flags);
+        p.field_hex("Pad", storage_header.pad);
+        p.field("Streams", storage_header.streams.get(LE));
+    });
+    for _ in 0..storage_header.streams.get(LE) {
+        let (storage_stream, rest2) = object::from_bytes::<pe::StorageStream>(rest).ok()?;
+        let name_len = rest2.iter().position(|x| *x == 0)?;
+        let name = &rest2[..name_len];
+        p.group("StorageStream", |p| {
+            p.field_hex("Offset", storage_stream.offset.get(LE));
+            p.field_hex("Size", storage_stream.size.get(LE));
+            p.field_inline_string("Name", name);
+        });
+        let align_len = (name_len + 4) & !3;
+        rest = rest2.get(align_len..)?;
+    }
+    Some(())
+}
+
 const FLAGS_IMAGE_FILE: &[Flag<u16>] = &flags!(
     IMAGE_FILE_RELOCS_STRIPPED,
     IMAGE_FILE_EXECUTABLE_IMAGE,
@@ -1276,4 +1401,13 @@ const FLAGS_IMAGE_OBJECT_NAME: &[Flag<u16>] = &flags!(
     IMPORT_OBJECT_NAME_NO_PREFIX,
     IMPORT_OBJECT_NAME_UNDECORATE,
     IMPORT_OBJECT_NAME_EXPORTAS,
+);
+const FLAGS_COMIMAGE: &[Flag<u32>] = &flags!(
+    COMIMAGE_FLAGS_ILONLY,
+    COMIMAGE_FLAGS_32BITREQUIRED,
+    COMIMAGE_FLAGS_IL_LIBRARY,
+    COMIMAGE_FLAGS_STRONGNAMESIGNED,
+    COMIMAGE_FLAGS_NATIVE_ENTRYPOINT,
+    COMIMAGE_FLAGS_TRACKDEBUGDATA,
+    COMIMAGE_FLAGS_32BITPREFERRED,
 );
