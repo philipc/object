@@ -84,6 +84,9 @@ cargo-all = []
 # stable interface of this crate.
 rustc-dep-of-std = ['core', 'compiler_builtins', 'alloc']
 
+[profile.release]
+debug = true
+
 [[example]]
 name = "ar"
 required-features = ["read_core", "archive"]

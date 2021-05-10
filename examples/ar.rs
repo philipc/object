@@ -13,34 +13,43 @@ fn main() {
     let op = args.next().unwrap();
     let file_path = args.next().unwrap();
 
-    let file = match fs::File::open(&file_path) {
-        Ok(file) => file,
-        Err(err) => {
-            println!("Failed to open file '{}': {}", file_path, err,);
-            return;
-        }
-    };
-    let file = match unsafe { memmap::Mmap::map(&file) } {
-        Ok(mmap) => mmap,
-        Err(err) => {
-            println!("Failed to map file '{}': {}", file_path, err,);
-            return;
-        }
-    };
-    let archive = match object::read::archive::ArchiveFile::parse(&*file) {
-        Ok(file) => file,
-        Err(err) => {
-            println!("Failed to parse file '{}': {}", file_path, err);
-            return;
-        }
-    };
-    match op.chars().next().unwrap() {
-        't' => {
-            for member in archive.members() {
-                let member = member.unwrap();
-                println!("{}", String::from_utf8_lossy(member.name()));
+    for _ in 0..100_000 {
+        let file = match fs::File::open(&file_path) {
+            Ok(file) => file,
+            Err(err) => {
+                println!("Failed to open file '{}': {}", file_path, err,);
+                return;
             }
+        };
+
+        /*
+        let map = match unsafe { memmap::Mmap::map(&file) } {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                println!("Failed to map file '{}': {}", file_path, err,);
+                return;
+            }
+        };
+        let data = &*map;
+        */
+
+        let cache = object::ReadCache::new(file);
+        let data = &cache;
+
+        let archive = match object::read::archive::ArchiveFile::parse(data) {
+            Ok(data) => data,
+            Err(err) => {
+                println!("Failed to parse file '{}': {}", file_path, err);
+                return;
+            }
+        };
+        match op.chars().next().unwrap() {
+            't' => {
+                for member in archive.members() {
+                    member.unwrap();
+                }
+            }
+            op => println!("Invalid operation: {}", op),
         }
-        op => println!("Invalid operation: {}", op),
     }
 }
