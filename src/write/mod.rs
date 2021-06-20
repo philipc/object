@@ -14,11 +14,16 @@ use crate::{
 
 #[cfg(feature = "coff")]
 mod coff;
+
 #[cfg(feature = "elf")]
-mod elf;
+pub mod elf;
+
 #[cfg(feature = "macho")]
 mod macho;
+
 mod string;
+pub use string::StringId;
+
 mod util;
 
 /// The error type used within the write module.
