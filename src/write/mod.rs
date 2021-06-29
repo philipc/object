@@ -6,7 +6,7 @@ use std::vec::Vec;
 use std::{error, fmt, result, str};
 
 use crate::endian::{Endianness, U32, U64};
-use crate::pod::{BytesMut, WritableBuffer};
+use crate::pod::{bytes_of, BytesMut, Pod};
 use crate::{
     Architecture, BinaryFormat, ComdatKind, FileFlags, RelocationEncoding, RelocationKind,
     SectionFlags, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
@@ -167,7 +167,7 @@ impl Object {
             kind,
             size: 0,
             align: 1,
-            data: BytesMut::new(),
+            data: Vec::new(),
             relocations: Vec::new(),
             symbol: None,
             flags: SectionFlags::None,
@@ -525,9 +525,9 @@ impl Object {
 
     /// Write the object to a `Vec`.
     pub fn write(&self) -> Result<Vec<u8>> {
-        let mut buffer = BytesMut::new();
+        let mut buffer = Vec::new();
         self.emit(&mut buffer)?;
-        Ok(buffer.0)
+        Ok(buffer)
     }
 
     /// Write the object to a `WritableBuffer`.
@@ -621,7 +621,7 @@ pub struct Section {
     kind: SectionKind,
     size: u64,
     align: u64,
-    data: BytesMut,
+    data: Vec<u8>,
     relocations: Vec<Relocation>,
     symbol: Option<SymbolId>,
     /// Section flags that are specific to each file format.
@@ -655,7 +655,7 @@ impl Section {
         debug_assert_eq!(align & (align - 1), 0);
         debug_assert!(self.data.is_empty());
         self.size = data.len() as u64;
-        self.data = BytesMut(data);
+        self.data = data;
         self.align = align;
     }
 
@@ -674,7 +674,7 @@ impl Section {
             offset += align - (offset & (align - 1));
             self.data.resize(offset, 0);
         }
-        self.data.extend(data);
+        self.data.extend_from_slice(data);
         self.size = self.data.len() as u64;
         offset as u64
     }
@@ -859,5 +859,52 @@ impl Mangling {
             Mangling::None | Mangling::Elf | Mangling::Coff => None,
             Mangling::CoffI386 | Mangling::MachO => Some(b'_'),
         }
+    }
+}
+
+/// Trait for writable buffer.
+#[allow(clippy::len_without_is_empty)]
+pub trait WritableBuffer {
+    /// Returns position/offset for data to be written at.
+    fn len(&self) -> usize;
+
+    /// Reserves specified number of bytes in the buffer.
+    fn reserve(&mut self, additional: usize) -> Result<()>;
+
+    /// Writes the specified value at the end of the buffer
+    /// until the buffer has the specified length.
+    fn resize(&mut self, new_len: usize, value: u8);
+
+    /// Writes the specified slice of bytes at the end of the buffer.
+    fn write_slice(&mut self, val: &[u8]);
+}
+
+impl<'a> dyn WritableBuffer + 'a {
+    /// Writes the specified `Pod` type at the end of the buffer.
+    pub fn write<T: Pod>(&mut self, val: &T) {
+        self.write_slice(bytes_of(val))
+    }
+}
+
+impl WritableBuffer for Vec<u8> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn reserve(&mut self, additional: usize) -> Result<()> {
+        self.reserve(additional);
+        Ok(())
+    }
+
+    #[inline]
+    fn resize(&mut self, new_len: usize, value: u8) {
+        self.resize(new_len, value);
+    }
+
+    #[inline]
+    fn write_slice(&mut self, val: &[u8]) {
+        self.extend_from_slice(val)
     }
 }

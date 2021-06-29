@@ -5,10 +5,10 @@ use std::vec::Vec;
 
 use crate::elf;
 use crate::endian::*;
-use crate::pod::{bytes_of, WritableBuffer};
+use crate::pod::bytes_of;
 use crate::write::string::{StringId, StringTable};
 use crate::write::util;
-use crate::write::{Error, Result};
+use crate::write::{Error, Result, WritableBuffer};
 
 /// The index of an ELF section.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -138,7 +138,7 @@ impl<'a> Writer<'a> {
     ///
     /// This is typically used to write section data.
     pub fn write(&mut self, data: &[u8]) {
-        self.buffer.extend(data);
+        self.buffer.write_slice(data);
     }
 
     /// Reserve the range for the file header.
@@ -308,7 +308,7 @@ impl<'a> Writer<'a> {
             return;
         }
         debug_assert_eq!(self.shstrtab_offset, self.buffer.len());
-        self.buffer.extend(&self.shstrtab_data);
+        self.buffer.write_slice(&self.shstrtab_data);
     }
 
     /// Write the section header for the section header string table.
@@ -363,7 +363,7 @@ impl<'a> Writer<'a> {
     /// Write the string table.
     pub fn write_strtab(&mut self) {
         debug_assert_eq!(self.strtab_offset, self.buffer.len());
-        self.buffer.extend(&self.strtab_data);
+        self.buffer.write_slice(&self.strtab_data);
     }
 
     /// Write the section header for the string table.
@@ -438,7 +438,7 @@ impl<'a> Writer<'a> {
         );
         if self.need_symtab_shndx {
             self.symtab_shndx_data
-                .extend(bytes_of(&U32::new(self.endian, 0)));
+                .extend_from_slice(bytes_of(&U32::new(self.endian, 0)));
         }
     }
 
@@ -463,7 +463,7 @@ impl<'a> Writer<'a> {
         if self.need_symtab_shndx {
             let section_index = section_index.unwrap_or(SectionIndex(0));
             self.symtab_shndx_data
-                .extend(bytes_of(&U32::new(self.endian, section_index.0)));
+                .extend_from_slice(bytes_of(&U32::new(self.endian, section_index.0)));
         }
     }
 
@@ -539,7 +539,7 @@ impl<'a> Writer<'a> {
         }
         debug_assert_eq!(self.symtab_shndx_offset, self.buffer.len());
         debug_assert_eq!(self.symtab_num as usize * 4, self.symtab_shndx_data.len());
-        self.buffer.extend(&self.symtab_shndx_data);
+        self.buffer.write_slice(&self.symtab_shndx_data);
     }
 
     /// Write the section header for the extended section indices for the symbol table.
@@ -782,7 +782,7 @@ impl Elf for Elf32 {
             e_shnum: U16::new(endian, file.e_shnum),
             e_shstrndx: U16::new(endian, file.e_shstrndx),
         };
-        buffer.extend(bytes_of(&file));
+        buffer.write(&file);
     }
 
     fn write_section_header(
@@ -803,7 +803,7 @@ impl Elf for Elf32 {
             sh_addralign: U32::new(endian, section.sh_addralign as u32),
             sh_entsize: U32::new(endian, section.sh_entsize as u32),
         };
-        buffer.extend(bytes_of(&section));
+        buffer.write(&section);
     }
 
     fn write_symbol(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, symbol: Sym) {
@@ -815,7 +815,7 @@ impl Elf for Elf32 {
             st_value: U32::new(endian, symbol.st_value as u32),
             st_size: U32::new(endian, symbol.st_size as u32),
         };
-        buffer.extend(bytes_of(&symbol));
+        buffer.write(&symbol);
     }
 
     fn write_rel(
@@ -832,13 +832,13 @@ impl Elf for Elf32 {
                 r_info: elf::Rel32::r_info(endian, rel.r_sym, rel.r_type as u8),
                 r_addend: I32::new(endian, rel.r_addend as i32),
             };
-            buffer.extend(bytes_of(&rel));
+            buffer.write(&rel);
         } else {
             let rel = elf::Rel32 {
                 r_offset: U32::new(endian, rel.r_offset as u32),
                 r_info: elf::Rel32::r_info(endian, rel.r_sym, rel.r_type as u8),
             };
-            buffer.extend(bytes_of(&rel));
+            buffer.write(&rel);
         }
     }
 }
@@ -888,7 +888,7 @@ impl Elf for Elf64 {
             e_shnum: U16::new(endian, file.e_shnum),
             e_shstrndx: U16::new(endian, file.e_shstrndx),
         };
-        buffer.extend(bytes_of(&file))
+        buffer.write(&file)
     }
 
     fn write_section_header(
@@ -909,7 +909,7 @@ impl Elf for Elf64 {
             sh_addralign: U64::new(endian, section.sh_addralign),
             sh_entsize: U64::new(endian, section.sh_entsize),
         };
-        buffer.extend(bytes_of(&section));
+        buffer.write(&section);
     }
 
     fn write_symbol(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, symbol: Sym) {
@@ -921,7 +921,7 @@ impl Elf for Elf64 {
             st_value: U64::new(endian, symbol.st_value),
             st_size: U64::new(endian, symbol.st_size),
         };
-        buffer.extend(bytes_of(&symbol));
+        buffer.write(&symbol);
     }
 
     fn write_rel(
@@ -938,13 +938,13 @@ impl Elf for Elf64 {
                 r_info: elf::Rela64::r_info2(endian, is_mips64el, rel.r_sym, rel.r_type),
                 r_addend: I64::new(endian, rel.r_addend),
             };
-            buffer.extend(bytes_of(&rel));
+            buffer.write(&rel);
         } else {
             let rel = elf::Rel64 {
                 r_offset: U64::new(endian, rel.r_offset),
                 r_info: elf::Rel64::r_info(endian, rel.r_sym, rel.r_type),
             };
-            buffer.extend(bytes_of(&rel));
+            buffer.write(&rel);
         }
     }
 }

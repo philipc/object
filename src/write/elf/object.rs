@@ -2,6 +2,7 @@ use std::vec::Vec;
 
 use crate::elf;
 use crate::endian::*;
+use crate::pod::bytes_of;
 use crate::write::elf::writer::*;
 use crate::write::string::StringId;
 use crate::write::*;
@@ -63,7 +64,7 @@ impl Object {
     pub(crate) fn elf_subsection_name(&self, section: &[u8], value: &[u8]) -> Vec<u8> {
         let mut name = section.to_vec();
         name.push(b'.');
-        name.extend(value);
+        name.extend_from_slice(value);
         name
     }
 
@@ -288,10 +289,13 @@ impl Object {
 
         // Write section data.
         for (index, comdat) in self.comdats.iter().enumerate() {
-            let mut data = BytesMut::new();
-            data.write(&U32::new(self.endian, elf::GRP_COMDAT));
+            let mut data = Vec::new();
+            data.extend_from_slice(bytes_of(&U32::new(self.endian, elf::GRP_COMDAT)));
             for section in &comdat.sections {
-                data.write(&U32::new(self.endian, section_offsets[section.0].index.0));
+                data.extend_from_slice(bytes_of(&U32::new(
+                    self.endian,
+                    section_offsets[section.0].index.0,
+                )));
             }
 
             writer.write_align(4);
