@@ -133,6 +133,23 @@ impl<'data, Elf: FileHeader, R: ReadRef<'data>> SymbolTable<'data, Elf, R> {
         self.shndx.get(index).cloned()
     }
 
+    /// Return the section index for the given symbol.
+    ///
+    /// This uses the extended section index if present.
+    pub fn symbol_section(
+        &self,
+        endian: Elf::Endian,
+        symbol: &'data Elf::Sym,
+        index: usize,
+    ) -> Option<u32> {
+        match symbol.st_shndx(endian) {
+            elf::SHN_UNDEF => None,
+            elf::SHN_XINDEX => self.shndx(index),
+            shndx if shndx < elf::SHN_LORESERVE => Some(shndx.into()),
+            _ => None,
+        }
+    }
+
     /// Return the symbol name for the given symbol.
     pub fn symbol_name(
         &self,

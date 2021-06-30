@@ -62,6 +62,22 @@ pub struct Writer<'a> {
     symtab_shndx_str_id: Option<StringId>,
     symtab_shndx_offset: usize,
     symtab_shndx_data: Vec<u8>,
+
+    dynstr: StringTable<'a>,
+    dynstr_str_id: Option<StringId>,
+    dynstr_index: SectionIndex,
+    dynstr_offset: usize,
+    dynstr_data: Vec<u8>,
+
+    dynsym_str_id: Option<StringId>,
+    dynsym_index: SectionIndex,
+    dynsym_offset: usize,
+    dynsym_num: u32,
+
+    dynamic_str_id: Option<StringId>,
+    dynamic_index: SectionIndex,
+    dynamic_offset: usize,
+    dynamic_num: usize,
 }
 
 impl<'a> Writer<'a> {
@@ -102,6 +118,22 @@ impl<'a> Writer<'a> {
             symtab_shndx_str_id: None,
             symtab_shndx_offset: 0,
             symtab_shndx_data: Vec::new(),
+
+            dynstr: StringTable::default(),
+            dynstr_str_id: None,
+            dynstr_index: SectionIndex(0),
+            dynstr_offset: 0,
+            dynstr_data: Vec::new(),
+
+            dynsym_str_id: None,
+            dynsym_index: SectionIndex(0),
+            dynsym_offset: 0,
+            dynsym_num: 0,
+
+            dynamic_str_id: None,
+            dynamic_index: SectionIndex(0),
+            dynamic_offset: 0,
+            dynamic_num: 0,
         }
     }
 
@@ -350,8 +382,12 @@ impl<'a> Writer<'a> {
     ///
     /// This range is used for a section named `.strtab`.
     /// This also reserves a section index.
+    /// This function does nothing if no strings were defined.
     pub fn reserve_strtab(&mut self) {
         debug_assert_eq!(self.strtab_offset, 0);
+        if self.strtab.is_empty() {
+            return;
+        }
         self.strtab_str_id = Some(self.section_name(&b".strtab"[..]));
         // Start with null string.
         self.strtab_data = vec![0];
@@ -361,13 +397,23 @@ impl<'a> Writer<'a> {
     }
 
     /// Write the string table.
+    ///
+    /// This function does nothing if no strings were defined.
     pub fn write_strtab(&mut self) {
+        if self.strtab.is_empty() {
+            return;
+        }
         debug_assert_eq!(self.strtab_offset, self.buffer.len());
         self.buffer.write_slice(&self.strtab_data);
     }
 
     /// Write the section header for the string table.
+    ///
+    /// This function does nothing if no strings were defined.
     pub fn write_strtab_section_header(&mut self) {
+        if self.strtab.is_empty() {
+            return;
+        }
         self.elf.write_section_header(
             self.buffer,
             self.endian,
@@ -442,7 +488,7 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// Write a null symbol.
+    /// Write a symbol.
     pub fn write_symbol(
         &mut self,
         name: Option<StringId>,
@@ -561,6 +607,237 @@ impl<'a> Writer<'a> {
                 sh_info: 0,
                 sh_addralign: 4,
                 sh_entsize: 4,
+            },
+        );
+    }
+
+    /// Add a string to the dynamic string table.
+    ///
+    /// This will be stored in the `.dynstr` section.
+    ///
+    /// This must not be called after [`Self::reserve_dynstr`].
+    pub fn dynamic_string(&mut self, name: &'a [u8]) -> StringId {
+        debug_assert_eq!(self.dynstr_offset, 0);
+        self.dynstr.add(name)
+    }
+
+    /// Reserve the range for the dynamic string table.
+    ///
+    /// This range is used for a section named `.dynstr`.
+    /// This also reserves a section index.
+    /// This function does nothing if no strings were defined.
+    pub fn reserve_dynstr(&mut self) {
+        debug_assert_eq!(self.dynstr_offset, 0);
+        if self.dynstr.is_empty() {
+            return;
+        }
+        self.dynstr_str_id = Some(self.section_name(&b".dynstr"[..]));
+        // Start with null string.
+        self.dynstr_data = vec![0];
+        self.dynstr.write(1, &mut self.dynstr_data);
+        self.dynstr_index = self.reserve_section();
+        self.dynstr_offset = self.reserve(self.dynstr_data.len(), 1);
+    }
+
+    /// Write the dynamic string table.
+    ///
+    /// This function does nothing if no strings were defined.
+    pub fn write_dynstr(&mut self) {
+        if self.dynstr.is_empty() {
+            return;
+        }
+        debug_assert_eq!(self.dynstr_offset, self.buffer.len());
+        self.buffer.write_slice(&self.dynstr_data);
+    }
+
+    /// Write the section header for the dynamic string table.
+    ///
+    /// This function does nothing if no strings were defined.
+    pub fn write_dynstr_section_header(&mut self) {
+        if self.dynstr.is_empty() {
+            return;
+        }
+        self.elf.write_section_header(
+            self.buffer,
+            self.endian,
+            SectionHeader {
+                sh_name: self.shstrtab.get_offset(self.dynstr_str_id.unwrap()) as u32,
+                sh_type: elf::SHT_STRTAB,
+                sh_flags: elf::SHF_ALLOC.into(),
+                sh_addr: 0,
+                sh_offset: self.dynstr_offset as u64,
+                sh_size: self.dynstr_data.len() as u64,
+                sh_link: 0,
+                sh_info: 0,
+                sh_addralign: 1,
+                sh_entsize: 0,
+            },
+        );
+    }
+
+    /// Reserve a dynamic symbol table entry.
+    ///
+    /// This will be stored in the `.dynsym` section.
+    ///
+    /// Automatically also reserves the null symbol if required.
+    pub fn reserve_dynamic_symbol(&mut self) -> SymbolIndex {
+        debug_assert_eq!(self.dynsym_offset, 0);
+        if self.dynsym_num == 0 {
+            self.dynsym_num = 1;
+        }
+        let index = self.dynsym_num;
+        self.dynsym_num += 1;
+        SymbolIndex(index)
+    }
+
+    /// Write the null dynamic symbol.
+    ///
+    /// This must be the first dynamic symbol that is written.
+    /// This function does nothing if no dynamic symbols were reserved.
+    pub fn write_null_dynamic_symbol(&mut self) {
+        if self.dynsym_num == 0 {
+            return;
+        }
+        util::write_align(self.buffer, self.elf_align);
+        debug_assert_eq!(self.dynsym_offset, self.buffer.len());
+        self.elf.write_symbol(
+            self.buffer,
+            self.endian,
+            Sym {
+                st_name: 0,
+                st_info: 0,
+                st_other: 0,
+                st_shndx: 0,
+                st_value: 0,
+                st_size: 0,
+            },
+        );
+    }
+
+    /// Write a dynamic symbol.
+    pub fn write_dynamic_symbol(&mut self, name: Option<StringId>, mut sym: Sym) {
+        if let Some(name) = name {
+            sym.st_name = self.dynstr.get_offset(name) as u32;
+        }
+        self.elf.write_symbol(self.buffer, self.endian, sym);
+    }
+
+    /// Reserve the range for the dynamic symbol table.
+    ///
+    /// This range is used for a section named `.dynsym`.
+    /// This also reserves a section index.
+    /// This function does nothing if no dynamic symbols were reserved.
+    pub fn reserve_dynsym(&mut self) {
+        debug_assert_eq!(self.dynsym_offset, 0);
+        if self.dynsym_num == 0 {
+            return;
+        }
+        self.dynsym_str_id = Some(self.section_name(&b".dynsym"[..]));
+        self.dynsym_index = self.reserve_section();
+        self.dynsym_offset = self.reserve(
+            self.dynsym_num as usize * self.elf.symbol_size(),
+            self.elf_align,
+        );
+    }
+
+    /// Return the section index of the dynamic symbol table.
+    pub fn dynsym_index(&mut self) -> SectionIndex {
+        self.dynsym_index
+    }
+
+    /// Write the section header for the dynamic symbol table.
+    /// This function does nothing if no dynamic symbols were reserved.
+    pub fn write_dynsym_section_header(&mut self, num_local: u32) {
+        if self.dynsym_num == 0 {
+            return;
+        }
+        self.elf.write_section_header(
+            self.buffer,
+            self.endian,
+            SectionHeader {
+                sh_name: self.shstrtab.get_offset(self.dynsym_str_id.unwrap()) as u32,
+                sh_type: elf::SHT_DYNSYM,
+                sh_flags: elf::SHF_ALLOC.into(),
+                sh_addr: 0,
+                sh_offset: self.dynsym_offset as u64,
+                sh_size: self.dynsym_num as u64 * self.elf.symbol_size() as u64,
+                sh_link: self.dynstr_index.0,
+                sh_info: num_local,
+                sh_addralign: self.elf_align as u64,
+                sh_entsize: self.elf.symbol_size() as u64,
+            },
+        );
+    }
+
+    /// Reserve the range for the `.dynamic` section.
+    ///
+    /// This also reserves a section index.
+    pub fn reserve_dynamic(&mut self, dynamic_num: usize) {
+        debug_assert_eq!(self.dynamic_offset, 0);
+        if dynamic_num == 0 {
+            return;
+        }
+        self.dynamic_str_id = Some(self.section_name(&b".dynamic"[..]));
+        self.dynamic_index = self.reserve_section();
+        self.dynamic_num = dynamic_num;
+        self.dynamic_offset = self.reserve(
+            self.dynamic_num as usize * self.elf.dyn_size(),
+            self.elf_align,
+        );
+    }
+
+    /// Write alignment padding bytes prior to the `.dynamic` section.
+    pub fn write_align_dynamic(&mut self) {
+        if self.dynamic_num == 0 {
+            return;
+        }
+        util::write_align(self.buffer, self.elf_align);
+        debug_assert_eq!(self.dynamic_offset, self.buffer.len());
+    }
+
+    /// Write a dynamic string entry.
+    pub fn write_dynamic_string(&mut self, tag: u64, id: StringId) {
+        self.write_dynamic(tag, self.dynstr.get_offset(id) as u64);
+    }
+
+    /// Write a dynamic value entry.
+    pub fn write_dynamic(&mut self, tag: u64, val: u64) {
+        debug_assert!(self.dynamic_offset <= self.buffer.len());
+        self.elf.write_dyn(
+            self.buffer,
+            self.endian,
+            Dyn {
+                d_tag: tag,
+                d_val: val,
+            },
+        );
+        debug_assert!(
+            self.dynamic_offset + self.dynamic_num * self.elf.dyn_size() >= self.buffer.len()
+        );
+    }
+
+    /// Write the section header for the dynamic table.
+    ///
+    /// This function does nothing if no dynamic entries were reserved.
+    pub fn write_dynamic_section_header(&mut self) {
+        if self.dynamic_num == 0 {
+            return;
+        }
+        self.elf.write_section_header(
+            self.buffer,
+            self.endian,
+            SectionHeader {
+                sh_name: self.shstrtab.get_offset(self.dynamic_str_id.unwrap()) as u32,
+                sh_type: elf::SHT_DYNAMIC,
+                sh_flags: (elf::SHF_WRITE | elf::SHF_ALLOC).into(),
+                // FIXME
+                sh_addr: 0,
+                sh_offset: self.dynamic_offset as u64,
+                sh_size: self.dynamic_num as u64 * self.elf.dyn_size() as u64,
+                sh_link: self.dynstr_index.0,
+                sh_info: 0,
+                sh_addralign: self.elf_align as u64,
+                sh_entsize: self.elf.dyn_size() as u64,
             },
         );
     }
@@ -699,6 +976,14 @@ pub struct Sym {
     pub st_size: u64,
 }
 
+/// Native endian version of [`elf::Dyn64`].
+#[allow(missing_docs)]
+#[derive(Debug, Clone)]
+pub struct Dyn {
+    pub d_tag: u64,
+    pub d_val: u64,
+}
+
 /// Unified native endian version of [`elf::Rel64`] and [`elf::Rela64`].
 #[allow(missing_docs)]
 #[derive(Debug, Clone)]
@@ -713,6 +998,7 @@ trait Elf {
     fn file_header_size(&self) -> usize;
     fn section_header_size(&self) -> usize;
     fn symbol_size(&self) -> usize;
+    fn dyn_size(&self) -> usize;
     fn rel_size(&self, is_rela: bool) -> usize;
     fn write_file_header(
         &self,
@@ -726,6 +1012,7 @@ trait Elf {
         endian: Endianness,
         section: SectionHeader,
     );
+    fn write_dyn(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, d: Dyn);
     fn write_symbol(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, symbol: Sym);
     fn write_rel(
         &self,
@@ -750,6 +1037,10 @@ impl Elf for Elf32 {
 
     fn symbol_size(&self) -> usize {
         mem::size_of::<elf::Sym32<Endianness>>()
+    }
+
+    fn dyn_size(&self) -> usize {
+        mem::size_of::<elf::Dyn32<Endianness>>()
     }
 
     fn rel_size(&self, is_rela: bool) -> usize {
@@ -806,6 +1097,14 @@ impl Elf for Elf32 {
         buffer.write(&section);
     }
 
+    fn write_dyn(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, d: Dyn) {
+        let d = elf::Dyn32 {
+            d_tag: U32::new(endian, d.d_tag as u32),
+            d_val: U32::new(endian, d.d_val as u32),
+        };
+        buffer.write(&d);
+    }
+
     fn write_symbol(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, symbol: Sym) {
         let symbol = elf::Sym32 {
             st_name: U32::new(endian, symbol.st_name),
@@ -856,6 +1155,10 @@ impl Elf for Elf64 {
 
     fn symbol_size(&self) -> usize {
         mem::size_of::<elf::Sym64<Endianness>>()
+    }
+
+    fn dyn_size(&self) -> usize {
+        mem::size_of::<elf::Dyn64<Endianness>>()
     }
 
     fn rel_size(&self, is_rela: bool) -> usize {
@@ -910,6 +1213,14 @@ impl Elf for Elf64 {
             sh_entsize: U64::new(endian, section.sh_entsize),
         };
         buffer.write(&section);
+    }
+
+    fn write_dyn(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, d: Dyn) {
+        let d = elf::Dyn64 {
+            d_tag: U64::new(endian, d.d_tag),
+            d_val: U64::new(endian, d.d_val),
+        };
+        buffer.write(&d);
     }
 
     fn write_symbol(&self, buffer: &mut dyn WritableBuffer, endian: Endianness, symbol: Sym) {

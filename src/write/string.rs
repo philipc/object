@@ -12,6 +12,11 @@ pub(crate) struct StringTable<'a> {
 }
 
 impl<'a> StringTable<'a> {
+    /// Return true if the table contains no strings.
+    pub fn is_empty(&self) -> bool {
+        self.strings.is_empty()
+    }
+
     /// Add a string to the string table.
     ///
     /// Panics if the string table has already been written, or
