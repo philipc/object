@@ -388,6 +388,10 @@ macro_rules! unsafe_impl_endian_pod {
     ($($struct_name:ident),+ $(,)?) => {
         $(
             unsafe impl<E: Endian> Pod for $struct_name<E> { }
+            #[cfg(feature = "bytemuck")]
+            unsafe impl<E: Endian> bytemuck::Zeroable for $struct_name<E> { }
+            #[cfg(feature = "bytemuck")]
+            unsafe impl<E: Endian> bytemuck::Pod for $struct_name<E> { }
         )+
     }
 }

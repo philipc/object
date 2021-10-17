@@ -145,7 +145,7 @@ pub fn bytes_of_slice_mut<T: Pod>(val: &mut [T]) -> &mut [u8] {
     unsafe { slice::from_raw_parts_mut(val.as_mut_ptr().cast(), size) }
 }
 
-macro_rules! unsafe_impl_pod {
+macro_rules! unsafe_impl_primitive_pod {
     ($($struct_name:ident),+ $(,)?) => {
         $(
             unsafe impl Pod for $struct_name { }
@@ -153,7 +153,19 @@ macro_rules! unsafe_impl_pod {
     }
 }
 
-unsafe_impl_pod!(u8, u16, u32, u64);
+unsafe_impl_primitive_pod!(u8, u16, u32, u64);
+
+macro_rules! unsafe_impl_pod {
+    ($($struct_name:ident),+ $(,)?) => {
+        $(
+            unsafe impl Pod for $struct_name { }
+            #[cfg(feature = "bytemuck")]
+            unsafe impl bytemuck::Zeroable for $struct_name { }
+            #[cfg(feature = "bytemuck")]
+            unsafe impl bytemuck::Pod for $struct_name { }
+        )+
+    }
+}
 
 #[cfg(test)]
 mod tests {

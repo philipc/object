@@ -12,6 +12,7 @@ description = "A unified interface for reading and writing object file formats."
 features = ['all']
 
 [dependencies]
+bytemuck = { version = "1.7", optional = true }
 crc32fast = { version = "1.2", optional = true }
 flate2 = { version = "1", optional = true }
 indexmap = { version = "1.1", optional = true }
