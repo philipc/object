@@ -86,6 +86,11 @@ impl<'data> ExportSymbol<'data> {
         &self.name
     }
 
+    /// Consume the symbol and return the name buffer.
+    pub fn into_name(self) -> Vec<u8> {
+        self.name.into_vec()
+    }
+
     /// The flags for the exported symbol.
     pub fn flags(&self) -> macho::ExportSymbolFlags {
         self.flags
@@ -166,6 +171,10 @@ impl<'data> NodeIterator<'data> {
     fn next(&mut self) -> Result<Option<Option<ExportSymbol<'data>>>> {
         if self.first {
             self.first = false;
+            if self.data.is_empty() {
+                // The trie data is omitted if there are no exports.
+                return Ok(None);
+            }
             // The root node is at offset 0.
             return Ok(Some(self.push_node(0)?));
         }

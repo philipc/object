@@ -53,6 +53,8 @@ pub trait ReadRef<'a>: Clone + Copy {
     /// Get a reference to a `u8` slice at the given offset.
     ///
     /// Returns an error if offset or size are out of bounds.
+    ///
+    /// If size is 0, then an empty slice is returned, and the offset is ignored.
     fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'a [u8]>;
 
     /// Get a reference to a delimited `u8` slice which starts at range.start.

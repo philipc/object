@@ -1,0 +1,34 @@
+Format: MachO Little-endian 64-bit
+Kind: Dynamic
+Architecture: Aarch64
+Flags: MachO { flags: MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_NO_REEXPORTED_DYLIBS }
+Relative Address Base: 0
+Entry Address: 0
+Mach UUID: [d5, 7c, 4f, 5, 27, 11, 3b, b3, 8d, 4f, 6b, 17, 77, ed, 7c, 25]
+Segment { name: "__TEXT", address: 0, size: 4000, permissions: R-X }
+Segment { name: "__DATA", address: 4000, size: 4000, permissions: RW- }
+Segment { name: "__LINKEDIT", address: 8000, size: 4000, permissions: R-- }
+1: Section { segment: "__TEXT", name: "__text", address: 3c0, size: 8, align: 1, kind: Text, flags: MachO { flags: S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS } }
+2: Section { segment: "__TEXT", name: "__stubs", address: 3c8, size: c, align: 4, kind: Unknown, flags: MachO { flags: S_SYMBOL_STUBS | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS } }
+3: Section { segment: "__TEXT", name: "__resolver_help", address: 3d4, size: 64, align: 4, kind: Unknown, flags: MachO { flags: S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS } }
+4: Section { segment: "__DATA", name: "__la_symbol_ptr", address: 4000, size: 8, align: 8, kind: Unknown, flags: MachO { flags: S_LAZY_SYMBOL_POINTERS } }
+
+Symbols
+0: Symbol { name: "_abs", address: fffff, size: 0, kind: Unknown, section: Absolute, scope: Dynamic, weak: false, flags: MachO { n_type: N_ABS | N_EXT, n_desc: 0 } }
+1: Symbol { name: "_foo", address: 3c0, size: 0, kind: Text, section: Section(SectionIndex(1)), scope: Dynamic, weak: false, flags: MachO { n_type: N_SECT | N_EXT, n_desc: 0x100 } }
+2: Symbol { name: "_foo_resolver", address: 3c4, size: 0, kind: Text, section: Section(SectionIndex(1)), scope: Dynamic, weak: false, flags: MachO { n_type: N_SECT | N_EXT, n_desc: 0 } }
+3: Symbol { name: "my_stub_binder", address: 29, size: 0, kind: Unknown, section: Unknown, scope: Dynamic, weak: false, flags: MachO { n_type: N_INDR | N_EXT, n_desc: 0 } }
+4: Symbol { name: "dyld_stub_binder", address: 0, size: 0, kind: Unknown, section: Undefined, scope: Unknown, weak: false, flags: MachO { n_type: N_UNDF | N_EXT, n_desc: 0x100 } }
+
+Dynamic symbols
+
+Import { library: "/usr/lib/libSystem.B.dylib", name: "dyld_stub_binder" }
+
+Export { name: "_abs", target: Absolute { value: fffff }, flags: None }
+Export { name: "_foo", target: Resolver { resolver: 3c0, stub: Some(3c8) }, flags: None }
+Export { name: "_foo_resolver", target: Address { address: 3c4 }, flags: None }
+Export { name: "my_stub_binder", target: Reexport { library: "/usr/lib/libSystem.B.dylib", name: "dyld_stub_binder" }, flags: None }
+
+Symbol map
+0x3c0-0x3c4 "_foo"
+0x3c4-0x3c8 "_foo_resolver"

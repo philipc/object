@@ -24,7 +24,7 @@ ImageNtHeaders {
 ImageFileHeader {
     Machine: IMAGE_FILE_MACHINE_AMD64 (0x8664)
     NumberOfSections: 2
-    TimeDateStamp: 1783922356
+    TimeDateStamp: 1784088113
     PointerToSymbolTable: 0x0
     NumberOfSymbols: 0
     SizeOfOptionalHeader: 0xF0
@@ -70,7 +70,7 @@ ImageOptionalHeader {
 ImageDataDirectory {
     Index: IMAGE_DIRECTORY_ENTRY_EXPORT (0x0)
     VirtualAddress: 0x2000
-    Size: 0xDA
+    Size: 0x108
 }
 ImageDataDirectory {
     Index: IMAGE_DIRECTORY_ENTRY_IMPORT (0x1)
@@ -166,7 +166,7 @@ ImageSectionHeader {
 ImageSectionHeader {
     Index: 2
     Name: ".rdata"
-    VirtualSize: 0xDA
+    VirtualSize: 0x108
     VirtualAddress: 0x2000
     SizeOfRawData: 0x200
     PointerToRawData: 0x600
@@ -185,14 +185,14 @@ ImageExportDirectory {
     MinorVersion: 0
     Name: 0x2028
     Base: 1
-    NumberOfFunctions: 7
-    NumberOfNames: 5
+    NumberOfFunctions: 8
+    NumberOfNames: 6
     AddressOfFunctions: 0x2033
-    AddressOfNames: 0x204F
-    AddressOfNameOrdinals: 0x2063
+    AddressOfNames: 0x2053
+    AddressOfNameOrdinals: 0x206B
     Export {
         Ordinal: 1
-        Name: "exported_named" (0x208B)
+        Name: "exported_named" (0x2095)
         Address: 0x1000
     }
     Export {
@@ -201,12 +201,12 @@ ImageExportDirectory {
     }
     Export {
         Ordinal: 3
-        Name: "exported_multi" (0x207C)
+        Name: "exported_multi" (0x2086)
         Address: 0x1020
     }
     Export {
         Ordinal: 4
-        Name: "exported_alias" (0x206D)
+        Name: "exported_alias" (0x2077)
         Address: 0x1020
     }
     Export {
@@ -215,16 +215,23 @@ ImageExportDirectory {
     }
     Export {
         Ordinal: 6
-        Name: "forward_by_name" (0x209A)
-        Address: 0x20BD
+        Name: "forward_by_name" (0x20A4)
+        Address: 0x20D8
         ForwardLibrary: "kernel32"
         ForwardName: "Sleep"
     }
     Export {
         Ordinal: 7
-        Name: "forward_by_ordinal" (0x20AA)
-        Address: 0x20CC
+        Name: "forward_by_ordinal" (0x20B4)
+        Address: 0x20E7
         ForwardLibrary: "kernel32"
         ForwardOrdinal: 123
+    }
+    Export {
+        Ordinal: 8
+        Name: "forward_with_dot" (0x20C7)
+        Address: 0x20F5
+        ForwardLibrary: "kernel32.dll"
+        ForwardName: "Sleep"
     }
 }
