@@ -52,9 +52,11 @@ impl<'data> ExportsTrieIterator<'data> {
     }
 
     /// Returns the next exported symbol, if any.
-    // All the heavy lifting is done by NodeIterator. This just skips over the internal nodes
-    // with no terminal data.
+    ///
+    /// Once an error is returned, the iterator is fused, and subsequent calls return `Ok(None)`.
     pub fn next(&mut self) -> Result<Option<ExportSymbol<'data>>> {
+        // All the heavy lifting is done by NodeIterator. This just skips over the internal nodes
+        // with no terminal data.
         for node in &mut self.node_iter {
             if let Some(export_symbol) = node? {
                 return Ok(Some(export_symbol));
@@ -168,7 +170,17 @@ impl<'data> NodeIterator<'data> {
     // - `Ok(Some(Some(ExportSymbol)))` if we have terminal data at the current node.
     // - `Ok(Some(None))` if we don't have terminal data at the current node.
     // - `Ok(None)` if we've reached the end of the trie.
+    //
+    // Once an error is returned, the iterator is fused, and subsequent calls return `Ok(None)`.
     fn next(&mut self) -> Result<Option<Option<ExportSymbol<'data>>>> {
+        let result = self.next_node();
+        if result.is_err() {
+            self.stack.clear();
+        }
+        result
+    }
+
+    fn next_node(&mut self) -> Result<Option<Option<ExportSymbol<'data>>>> {
         if self.first {
             self.first = false;
             // The root node is at offset 0.
@@ -331,5 +343,20 @@ mod tests {
         ];
         let mut exports = ExportsTrieIterator::new(&data);
         assert!(exports.next().is_err());
+        assert!(exports.next().unwrap().is_none());
+    }
+
+    #[test]
+    fn fuse_after_repeatable_error() {
+        // The edge string is unterminated, which is an error that doesn't
+        // advance the traversal.
+        let data = [
+            0x00, // terminal_size
+            0x01, // children_count
+            b'a', // edge_str (no null terminator)
+        ];
+        let mut exports = ExportsTrieIterator::new(&data);
+        assert!(exports.next().is_err());
+        assert!(exports.next().unwrap().is_none());
     }
 }
