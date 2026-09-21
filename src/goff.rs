@@ -27,6 +27,8 @@ const fn set_bits(val: &mut u8, index: u8, length: u8, new_val: u8) {
 enum BitField {
     /// Print the name if the field is non-zero.
     Flag(&'static str),
+    /// Print the name and value if the field is non-zero.
+    Value(&'static str),
     /// Always print the field using the given function.
     Enum(fn(u8, &mut core::fmt::Formatter<'_>) -> core::fmt::Result),
 }
@@ -46,8 +48,9 @@ fn debug_bit_fields<const N: usize>(
             let val = get_bits(bytes[*byte], *index, *length);
             set_bits(&mut unused[*byte], *index, *length, 0);
             match field {
-                BitField::Flag(_) if val == 0 => continue,
+                BitField::Flag(_) | BitField::Value(_) if val == 0 => continue,
                 BitField::Flag(name) => write!(f, "{sep}{name}")?,
+                BitField::Value(name) => write!(f, "{sep}{name}({val})")?,
                 BitField::Enum(fmt) => {
                     f.write_str(sep)?;
                     fmt(val, f)?;
@@ -162,11 +165,9 @@ pub struct TextRecord64 {
     pub data: [u8; SIZEOF_TXT_DATA],
 }
 
-/// Each continuation record will have a payload of 77 bytes
+/// Each relocation record will have a payload of 74 bytes
 pub const SIZEOF_RELOCATION_DATA: usize = 74;
 
-/// A single relocation data item within an RLD record.
-/// Size is variable (8-28 bytes) depending on which fields are present as determined by the Flags field.
 /// The relocation directory ("RLD") record.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -179,6 +180,18 @@ pub struct RelocationRecord64 {
     pub length: U16<BE>,
     /// Relocation Data
     pub data: [u8; SIZEOF_RELOCATION_DATA],
+}
+
+/// A single relocation data item within an RLD record.
+///
+/// Size is variable depending on which fields are present as determined by the flags field.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct RelocationDataItem {
+    /// Relocation flags
+    pub flags: RelocationFlags,
+    /// Reserved. Must be 2 bytes of 0.
+    pub reserved: [u8; 2],
 }
 
 /// Each continuation record will have a payload of 77 bytes
@@ -777,15 +790,263 @@ impl BehavioralAttributes {
     }
 }
 
+newtype!(
+    /// Relocation Reference Type - Byte 1 bits 0-3 of relocation flags
+    #[repr(transparent)]
+    struct RelocationReferenceType(u8);
+);
+
+newtype_constant_names!(NAMES_RLD_RT: RelocationReferenceType(u8) = {
+    RLD_RT_ADDRESS = 0,
+    RLD_RT_OFFSET = 1,
+    RLD_RT_LENGTH = 2,
+    RLD_RT_RELATIVE_IMMEDIATE = 6,
+    RLD_RT_TYPE_CONSTANT = 7,
+    RLD_RT_LONG_DISPLACEMENT = 9,
+});
+
+newtype!(
+    /// Relocation Referent Type - Byte 1 bits 4-7 of relocation flags
+    #[repr(transparent)]
+    struct RelocationReferentType(u8);
+);
+
+newtype_constant_names!(NAMES_RLD_RO: RelocationReferentType(u8) = {
+    RLD_RO_LABEL = 0,
+    RLD_RO_ELEMENT = 1,
+    RLD_RO_CLASS = 2,
+    RLD_RO_PART = 3,
+});
+
+newtype!(
+    /// Relocation action - Byte 2 bits 0-6 of relocation flags
+    #[repr(transparent)]
+    struct RelocationAction(u8);
+);
+
+newtype_constant_names!(NAMES_RLD_ACT: RelocationAction(u8) = {
+    RLD_ACT_ADD = 0,
+    RLD_ACT_SUBTRACT = 1,
+});
+
+newtype!(
+    /// Relocation fetch/store - Byte 2 bit 7 of relocation flags
+    #[repr(transparent)]
+    struct RelocationFetchStore(u8);
+);
+
+newtype_constant_names!(NAMES_RLD_FS: RelocationFetchStore(u8) = {
+    /// Fetch target field contents and use as first operand.
+    RLD_FS_FETCH = 0,
+    /// Ignore initial contents, store fixup quantity over it.
+    RLD_FS_STORE = 1,
+});
+
+/// Flags for relocation directory (RLD) data element.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct RelocationFlags(pub [u8; 6]);
+
+#[rustfmt::skip]
+const RELOCATION_FLAGS_FIELDS: BitFields = &[
+    (0, 0, 1, BitField::Flag("SAME_R_ID")),
+    (0, 1, 1, BitField::Flag("SAME_P_ID")),
+    (0, 2, 1, BitField::Flag("SAME_OFFSET")),
+    (0, 6, 1, BitField::Flag("OFFSET64")),
+    (0, 7, 1, BitField::Flag("AMODE_SENSITIVE")),
+    (1, 0, 4, BitField::Enum(|v, f| write!(f, "{:?}", RelocationReferenceType(v)))),
+    (1, 4, 4, BitField::Enum(|v, f| write!(f, "{:?}", RelocationReferentType(v)))),
+    (2, 0, 7, BitField::Enum(|v, f| write!(f, "{:?}", RelocationAction(v)))),
+    (2, 7, 1, BitField::Enum(|v, f| write!(f, "{:?}", RelocationFetchStore(v)))),
+    (4, 0, 8, BitField::Enum(|v, f| write!(f, "BYTE_LENGTH({v})"))),
+    (5, 0, 3, BitField::Value("BIT_LENGTH")),
+    (5, 3, 1, BitField::Flag("CONDITIONAL")),
+    (5, 5, 3, BitField::Value("BIT_OFFSET")),
+];
+
+impl core::fmt::Debug for RelocationFlags {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        debug_bit_fields(f, &self.0, RELOCATION_FLAGS_FIELDS)
+    }
+}
+
+impl RelocationFlags {
+    // Byte 0 - Compression and Mode Flags
+
+    /// True if R pointer is same as previous RLD item (R-ID field omitted).
+    pub fn same_r_id(self) -> bool {
+        get_bits(self.0[0], 0, 1) != 0
+    }
+
+    /// Set the same R-ID flag.
+    pub fn with_same_r_id(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[0], 0, 1, val as u8);
+        self
+    }
+
+    /// True if P pointer is same as previous RLD item (P-ID field omitted).
+    pub fn same_p_id(self) -> bool {
+        get_bits(self.0[0], 1, 1) != 0
+    }
+
+    /// Set the same P-ID flag.
+    pub fn with_same_p_id(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[0], 1, 1, val as u8);
+        self
+    }
+
+    /// True if offset is same as previous RLD item (Offset field omitted).
+    pub fn same_offset(self) -> bool {
+        get_bits(self.0[0], 2, 1) != 0
+    }
+
+    /// Set the same offset flag.
+    pub fn with_same_offset(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[0], 2, 1, val as u8);
+        self
+    }
+
+    /// True if offset is 64-bit.
+    pub fn is_offset64(self) -> bool {
+        get_bits(self.0[0], 6, 1) != 0
+    }
+
+    /// Set the 64-bit offset flag.
+    pub fn with_offset64(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[0], 6, 1, val as u8);
+        self
+    }
+
+    /// True if addressing mode bits should be set according to target addressing mode.
+    pub fn is_amode_sensitive(self) -> bool {
+        get_bits(self.0[0], 7, 1) != 0
+    }
+
+    /// Set the addressing mode sensitivity flag.
+    pub fn with_amode_sensitive(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[0], 7, 1, val as u8);
+        self
+    }
+
+    // Byte 1 - R-Pointer Indicators
+
+    /// Data type for second operand.
+    pub fn reference_type(self) -> RelocationReferenceType {
+        RelocationReferenceType(get_bits(self.0[1], 0, 4))
+    }
+
+    /// Set the reference type.
+    pub fn with_reference_type(mut self, val: RelocationReferenceType) -> Self {
+        set_bits(&mut self.0[1], 0, 4, val.0);
+        self
+    }
+
+    /// Type of referent item.
+    pub fn referent_type(self) -> RelocationReferentType {
+        RelocationReferentType(get_bits(self.0[1], 4, 4))
+    }
+
+    /// Set the referent type.
+    pub fn with_referent_type(mut self, val: RelocationReferentType) -> Self {
+        set_bits(&mut self.0[1], 4, 4, val.0);
+        self
+    }
+
+    // Byte 2 - Action/Operation Flags
+
+    /// Operation type.
+    ///
+    /// 0=add, 1=subtract
+    pub fn action(self) -> RelocationAction {
+        RelocationAction(get_bits(self.0[2], 0, 7))
+    }
+
+    /// Set the operation type.
+    pub fn with_action(mut self, val: RelocationAction) -> Self {
+        set_bits(&mut self.0[2], 0, 7, val.0);
+        self
+    }
+
+    /// Get the fetch/store flag.
+    pub fn fetch_store(self) -> RelocationFetchStore {
+        RelocationFetchStore(get_bits(self.0[2], 7, 1))
+    }
+
+    /// Set the target field contents flag.
+    pub fn with_fetch_store(mut self, val: RelocationFetchStore) -> Self {
+        set_bits(&mut self.0[2], 7, 1, val.0);
+        self
+    }
+
+    // Byte 3 - reserved
+
+    // Byte 4 - Target Field Length
+
+    /// Unsigned byte length of the target field.
+    pub fn byte_length(self) -> u8 {
+        self.0[4]
+    }
+
+    /// Set the byte length of the target field.
+    pub fn with_byte_length(mut self, val: u8) -> Self {
+        self.0[4] = val;
+        self
+    }
+
+    // Byte 5 - Bit-Level Field Specifications
+
+    /// Additional bit length for non-byte-aligned target fields.
+    ///
+    /// Total bit width = 8 × target_byte_length + bit_length
+    pub fn bit_length(self) -> u8 {
+        get_bits(self.0[5], 0, 3)
+    }
+
+    /// Set the additional bit length of the target field.
+    pub fn with_bit_length(mut self, val: u8) -> Self {
+        set_bits(&mut self.0[5], 0, 3, val);
+        self
+    }
+
+    /// True if part of conditional sequential resolution group.
+    pub fn is_conditional_sequential(self) -> bool {
+        get_bits(self.0[5], 3, 1) != 0
+    }
+
+    /// Set the conditional sequential resolution flag.
+    pub fn with_conditional_sequential(mut self, val: bool) -> Self {
+        set_bits(&mut self.0[5], 3, 1, val as u8);
+        self
+    }
+
+    /// Position of first bit in the byte that is part of the field.
+    pub fn bit_offset(self) -> u8 {
+        get_bits(self.0[5], 5, 3)
+    }
+
+    /// Set the position of the first bit of the target field.
+    pub fn with_bit_offset(mut self, val: u8) -> Self {
+        set_bits(&mut self.0[5], 5, 3, val);
+        self
+    }
+
+    /// Calculate total field width in bits.
+    pub fn total_bit_width(self) -> u16 {
+        (self.byte_length() as u16) * 8 + (self.bit_length() as u16)
+    }
+}
+
 unsafe_impl_pod!(
     HeaderRecord64,
     SymbolRecord64,
     TextRecord64,
     RelocationRecord64,
+    RelocationDataItem,
     ContinuationRecord64,
     LenRecord64,
     LengthDataItem,
     EndRecord64,
     RecordPrefix,
     BehavioralAttributes,
+    RelocationFlags,
 );
