@@ -226,7 +226,7 @@ pub enum FileKind {
     ///
     /// See [`goff::GoffFile64`].
     #[cfg(feature = "goff")]
-    Goff64,
+    Goff,
     /// A 32-bit Mach-O file.
     ///
     /// See [`macho::MachOFile32`].
@@ -300,7 +300,7 @@ impl FileKind {
             #[cfg(feature = "elf")]
             [0x7f, b'E', b'L', b'F', 2, ..] => FileKind::Elf64,
             #[cfg(feature = "goff")]
-            [0x03, 0xf0, 0x00, ..] => FileKind::Goff64,
+            [0x03, 0xf0, 0x00, ..] => FileKind::Goff,
             #[cfg(feature = "macho")]
             [0xfe, 0xed, 0xfa, 0xce, ..]
             | [0xce, 0xfa, 0xed, 0xfe, ..] => FileKind::MachO32,

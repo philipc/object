@@ -71,10 +71,10 @@ fn debug_bit_fields<const N: usize>(
     Ok(())
 }
 
-/// The module header ("HDR") record at the start of every 64-bit GOFF file.
+/// The module header ("HDR") record at the start of every GOFF file.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct HeaderRecord64 {
+pub struct HeaderRecord {
     /// Type of record. Must be 0x03F000.
     pub ptv: [u8; 3],
     /// Reserved. Must be 45 bytes of 0.
@@ -92,7 +92,7 @@ pub const SIZEOF_ESD_DATA: usize = 8;
 /// The external symbol definition ("ESD") record.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct SymbolRecord64 {
+pub struct SymbolRecord {
     /// Type of record. Must be 0x030000 or 0x030100.
     pub ptv: [u8; 3],
     /// Symbol Type.
@@ -116,7 +116,7 @@ pub struct SymbolRecord64 {
     /// Reserved. Must be 4 bytes of 0.
     pub reserved3: U32<BE>,
     /// Name Space ID
-    pub namespace_id: EsdNameSpace,
+    pub namespace_id: SymbolNamespace,
     /// Symbol Flags.
     pub sym_flags: u8,
     /// Fill Byte Value (the specific 1-byte value used to pad memory)
@@ -144,7 +144,7 @@ pub const SIZEOF_TXT_DATA: usize = 56;
 /// The text ("TXT") record.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct TextRecord64 {
+pub struct TextRecord {
     /// Type of record. Must be 0x031000 or 0x031100.
     pub ptv: [u8; 3],
     /// Text Record Style
@@ -171,7 +171,7 @@ pub const SIZEOF_RELOCATION_DATA: usize = 74;
 /// The relocation directory ("RLD") record.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct RelocationRecord64 {
+pub struct RelocationRecord {
     /// Type of record. Must be 0x032000 or 0x032100.
     pub ptv: [u8; 3],
     /// Reserved. Must be 1 byte of 0.
@@ -200,7 +200,7 @@ pub const SIZEOF_CONTINUATION_RECORD_DATA: usize = 77;
 /// The generic continuation record.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct ContinuationRecord64 {
+pub struct ContinuationRecord {
     /// Type of record.
     pub ptv: [u8; 3],
     /// Payload.
@@ -213,7 +213,7 @@ pub const SIZEOF_DEFERRED_LEN_DATA: usize = 72;
 /// Deferred-length ("LEN") record
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct LenRecord64 {
+pub struct LengthRecord {
     /// Type of record.
     pub ptv: [u8; 3],
     /// Reserved data.
@@ -239,10 +239,10 @@ pub struct LengthDataItem {
 /// Each entry point name will have a size of 54 bytes
 pub const SIZEOF_ENTRY_POINT_NAME: usize = 54;
 
-/// The module end ("END") record at the end of every 64-bit GOFF file.
+/// The module end ("END") record at the end of every GOFF file.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct EndRecord64 {
+pub struct EndRecord {
     /// Type of record. Must be 0x034000.
     pub ptv: [u8; 3],
     /// Flags.  Upper 6 bits are reserved to 0
@@ -252,7 +252,7 @@ pub struct EndRecord64 {
     /// Reserved. Must be 3 bytes of 0.
     pub reserved1: [u8; 3],
     /// Record Count.
-    pub record_cnt: U32<BE>,
+    pub record_count: U32<BE>,
     /// ESDID
     pub esdid: U32<BE>,
     /// Reserved. Must be 4 bytes of 0.
@@ -271,7 +271,7 @@ pub struct EndRecord64 {
 pub const RECORD_LEN: u64 = 80;
 
 newtype!(
-    /// Values for `FileEnd64::flags`.
+    /// Values for `EndRecord::flags`.
     ///
     /// The lower 2 bits indicate entry point presence/type.
     /// Upper 6 bits are reserved and must be 0.
@@ -304,7 +304,7 @@ newtype!(
     struct RecordType(u8);
 );
 
-newtype_constant_names!(NAMES_RECORD_TYPE: RecordType(u8) = {
+newtype_constant_names!(NAMES_RT: RecordType(u8) = {
     /// External Symbol Dictionary record.
     RT_ESD = 0x00,
     /// Text (code/data) record.
@@ -360,10 +360,10 @@ newtype_constant_names!(NAMES_ESD_ST: SymbolType(u8) = {
 newtype!(
     /// ESD Namespace
     #[repr(transparent)]
-    struct EsdNameSpace(u8);
+    struct SymbolNamespace(u8);
 );
 
-newtype_constant_names!(NAMES_ESD_NAMESPACE: EsdNameSpace(u8) = {
+newtype_constant_names!(NAMES_ESD_NS: SymbolNamespace(u8) = {
     ESD_NS_PROGRAM_MANAGEMENT_BINDER = 0,
     ESD_NS_NORMAL_NAME = 1,
     ESD_NS_PSEUDO_REGISTER = 2,
@@ -1037,15 +1037,15 @@ impl RelocationFlags {
 }
 
 unsafe_impl_pod!(
-    HeaderRecord64,
-    SymbolRecord64,
-    TextRecord64,
-    RelocationRecord64,
+    HeaderRecord,
+    SymbolRecord,
+    TextRecord,
+    RelocationRecord,
     RelocationDataItem,
-    ContinuationRecord64,
-    LenRecord64,
+    ContinuationRecord,
+    LengthRecord,
     LengthDataItem,
-    EndRecord64,
+    EndRecord,
     RecordPrefix,
     BehavioralAttributes,
     RelocationFlags,
