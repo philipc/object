@@ -660,11 +660,6 @@ where
 }
 
 impl goff::HeaderRecord {
-    /// Prefix (first 3 bytes) in module header record serves as magic number
-    fn magic(&self) -> [u8; 3] {
-        self.ptv
-    }
-
     /// Returns architecture level
     fn archlvl(&self) -> u32 {
         self.archlvl.get(BE)
@@ -672,7 +667,7 @@ impl goff::HeaderRecord {
 
     /// Verifies header prefix contains proper magic
     fn is_supported(&self) -> bool {
-        self.magic() == goff::GOFF_HDR_BYTES
+        self.ptv == goff::HDR_PREFIX
     }
 
     /// Read the file header.
