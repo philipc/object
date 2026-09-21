@@ -83,10 +83,8 @@ where
     /// Parses the body of a GOFF file (each record after the module header record)
     pub fn parse_records(&mut self, offset: &mut u64) -> Result<()> {
         while let Ok(record_prefix) = self.data.read_at::<goff::RecordPrefix>(*offset) {
-            if !record_prefix.is_valid() {
-                return Err(Error(
-                    "Invalid GOFF prefix or version encountered while parsing",
-                ));
+            if !record_prefix.is_valid() || record_prefix.is_continuation() {
+                return Err(Error("Invalid GOFF record prefix"));
             }
 
             match record_prefix.record_type() {
@@ -127,7 +125,7 @@ where
 
         // parse continuations if any (provides name data)
         let cont_data: Vec<&'data [u8]> = if is_continued {
-            self.parse_continuations(offset)?
+            self.parse_continuations(offset, RT_ESD)?
         } else {
             Vec::new()
         };
@@ -198,7 +196,7 @@ where
 
         // Parse continuations if any
         let cont_data: Vec<&'data [u8]> = if is_continued {
-            self.parse_continuations(offset)?
+            self.parse_continuations(offset, RT_TXT)?
         } else {
             Vec::new()
         };
@@ -273,7 +271,7 @@ where
 
         // If entry name is too large, need to parse the rest from continuation records
         if is_continued {
-            let name_data = self.parse_continuations(offset)?;
+            let name_data = self.parse_continuations(offset, RT_END)?;
             // Trim continuation slices to avoid appending zero-padding.
             let mut remaining = name_length - capped_length;
             for part in name_data {
@@ -286,14 +284,26 @@ where
     }
 
     /// Parses continuation records until none are left (incrementing offset)
-    pub fn parse_continuations(&self, offset: &mut u64) -> Result<Vec<&'data [u8]>> {
+    fn parse_continuations(
+        &self,
+        offset: &mut u64,
+        record_type: RecordType,
+    ) -> Result<Vec<&'data [u8]>> {
         let mut cont_data: Vec<&[u8]> = Vec::new();
         loop {
-            let record_prefix = self.data.read_at::<goff::RecordPrefix>(*offset).unwrap();
-            let cont_record = self.data.read::<ContinuationRecord>(offset).unwrap();
-            cont_data.push(&cont_record.data[..]);
+            let record = self
+                .data
+                .read::<ContinuationRecord>(offset)
+                .read_error("Missing GOFF continuation record")?;
+            if !record.ptv.is_valid()
+                || !record.ptv.is_continuation()
+                || record.ptv.record_type() != record_type
+            {
+                return Err(Error("Invalid GOFF continuation record prefix"));
+            }
+            cont_data.push(&record.data[..]);
 
-            if !record_prefix.is_continued() {
+            if !record.ptv.is_continued() {
                 break;
             }
         }
@@ -381,7 +391,7 @@ where
 
         // Append continuation data if present (77 bytes per continuation)
         if is_continued {
-            let cont_data = self.parse_continuations(offset)?;
+            let cont_data = self.parse_continuations(offset, RT_RLD)?;
             for chunk in cont_data {
                 all_data.extend_from_slice(chunk);
             }
@@ -413,7 +423,7 @@ where
 
         // Append continuation data if present (77 bytes per continuation)
         if is_continued {
-            let cont_data = self.parse_continuations(offset)?;
+            let cont_data = self.parse_continuations(offset, RT_LEN)?;
             for chunk in cont_data {
                 all_data.extend_from_slice(chunk);
             }
