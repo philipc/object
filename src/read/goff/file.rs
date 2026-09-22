@@ -258,12 +258,14 @@ where
         if self.entry_flags.is_none() {
             self.entry_amode = None;
             self.entry_esdid = None;
+            self.entry_offset = None;
             return Ok(());
         }
 
         // Parse entry point data
         self.entry_amode = Some(end_record.amode);
         self.entry_esdid = Some(end_record.esdid.get(BE));
+        self.entry_offset = Some(end_record.offset.get(BE));
         let name_length: usize = end_record.name_length.get(BE).into();
         let capped_length = name_length.clamp(0, SIZEOF_ENTRY_POINT_NAME);
         self.entry_name
@@ -654,10 +656,7 @@ where
     }
 
     fn entry(&self) -> u64 {
-        match self.entry_offset {
-            Some(offset) => offset.into(),
-            None => 0,
-        }
+        0
     }
 
     fn flags(&self) -> FileFlags {
